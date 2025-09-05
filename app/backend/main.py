@@ -3,7 +3,7 @@ Main FastAPI application for the titration analysis app.
 Defines API endpoints for CSV import, data processing, and result export.
 """
 import os
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,9 @@ from schemas import (
     Peak,
     ModelData,
     ExportRequest,
+    ExportFormat,
+    DataType,
+    SessionData,
     Metal,
 )
 from io_csv import parse_csv_file
@@ -45,6 +48,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --------------------------------------------------------------------------- #
+# Initialise shared state to keep the most recent compute result
+# --------------------------------------------------------------------------- #
+app.state.last_settings: Optional[ComputeSettings] = None
+app.state.last_processed: Optional[List[ProcessedRow]] = None
+app.state.last_model: Optional[ModelData] = None
+app.state.last_peaks: Optional[List[Peak]] = None
+app.state.last_c_a: Optional[float] = None
 
 # API endpoints
 @app.get("/api/health")
@@ -185,12 +197,21 @@ async def compute_data(settings: ComputeSettings):
         )
         
         # Return compute response
-        return ComputeResponse(
+        response = ComputeResponse(
             processed_table=processed_table,
             model_data=model_data,
             peaks=peak_models,
             c_a=c_a
         )
+
+        # Persist result in app state for later export
+        app.state.last_settings = settings
+        app.state.last_processed = processed_table
+        app.state.last_model = model_data
+        app.state.last_peaks = peak_models
+        app.state.last_c_a = c_a
+
+        return response
     
     except Exception as exc:
         # Handle any unexpected errors
@@ -206,11 +227,80 @@ async def export_data(request: ExportRequest):
     
     Supports CSV and JSON formats for processed data and peaks.
     """
-    # Placeholder - actual export will be implemented later
+    # Ensure we have a previous compute
+    if app.state.last_processed is None:
+        raise HTTPException(status_code=400, detail="No computation data available to export.")
+
+    # Helper functions ----------------------------------------------------- #
+    def processed_to_csv(rows: List[ProcessedRow]) -> str:
+        header = (
+            "time,pH,v_b,n_b,b_meas,na,b_model,delta_b,d_delta_b_d_ph"
+        )
+        lines = [header]
+        for r in rows:
+            lines.append(
+                f"{r.time},{r.ph},{r.v_b},{r.n_b},{r.b_meas},"
+                f"{r.na},{r.b_model},{r.delta_b},{r.d_delta_b_d_ph}"
+            )
+        return "\n".join(lines)
+
+    def peaks_to_csv(peaks_list: List[Peak]) -> str:
+        header = "peak_id,ph_start,ph_apex,ph_end,delta_b_step"
+        lines = [header]
+        for p in peaks_list:
+            lines.append(f"{p.peak_id},{p.ph_start},{p.ph_apex},{p.ph_end},{p.delta_b_step}")
+        return "\n".join(lines)
+
+    # Build data based on request ----------------------------------------- #
+    filename_base = "titration"
+    content_type: str
+    data_payload: Any
+
+    if request.data_type == DataType.PROCESSED:
+        if request.format == ExportFormat.CSV:
+            content_type = "text/csv"
+            data_payload = processed_to_csv(app.state.last_processed)
+            filename = f"{filename_base}_processed.csv"
+        else:
+            content_type = "application/json"
+            data_payload = (
+                # Pydantic models have .model_dump_json in v2; retain simple repr
+                [r.model_dump() for r in app.state.last_processed]
+            )
+            filename = f"{filename_base}_processed.json"
+
+    elif request.data_type == DataType.PEAKS:
+        if request.format == ExportFormat.CSV:
+            content_type = "text/csv"
+            data_payload = peaks_to_csv(app.state.last_peaks)
+            filename = f"{filename_base}_peaks.csv"
+        else:
+            content_type = "application/json"
+            data_payload = [p.model_dump() for p in app.state.last_peaks]
+            filename = f"{filename_base}_peaks.json"
+
+    elif request.data_type == DataType.SESSION:
+        # Session must be JSON for portability
+        if request.format != ExportFormat.JSON:
+            raise HTTPException(status_code=400, detail="Session export only supported in JSON format.")
+        content_type = "application/json"
+        session = SessionData(
+            settings=app.state.last_settings,
+            processed_table=app.state.last_processed,
+            model_data=app.state.last_model,
+            peaks=app.state.last_peaks,
+            c_a=app.state.last_c_a,
+        )
+        data_payload = session.model_dump()
+        filename = f"{filename_base}_session.json"
+    else:
+        # Should not reach here due to enum validation
+        raise HTTPException(status_code=400, detail="Unsupported data type.")
+
     return {
-        "filename": f"titration_data.{request.format}",
-        "content_type": "text/csv" if request.format == "csv" else "application/json",
-        "data": "time,pH,V_b\n60,2.56,1.0\n120,2.57,2.0",
+        "filename": filename,
+        "content_type": content_type,
+        "data": data_payload,
     }
 
 if __name__ == "__main__":
