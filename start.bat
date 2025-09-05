@@ -51,7 +51,7 @@ popd
 rem ---------------------------------------------------------------------------
 rem  Launch backend (background – same console)
 rem ---------------------------------------------------------------------------
-start "backend" cmd /k "cd /d \"%BACKEND_DIR%\" && \"%BACKEND_DIR%\\.venv\\Scripts\\python.exe\" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload 1>>\"%LOG_DIR%\\backend.log\" 2>&1"
+start "backend" cmd /k "cd /d \"%BACKEND_DIR%\" && \"%BACKEND_DIR%\\.venv\\Scripts\\python.exe\" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload"
 call :log "Backend starting on http://localhost:8000"
 
 call :log "Frontend setup..."
@@ -61,7 +61,7 @@ popd
 rem ---------------------------------------------------------------------------
 rem  Launch frontend dev-server (background – same console)
 rem ---------------------------------------------------------------------------
-start "frontend" cmd /k "cd /d \"%FRONTEND_DIR%\" && npm run dev 1>>\"%LOG_DIR%\\frontend.log\" 2>&1"
+start "frontend" cmd /k "cd /d \"%FRONTEND_DIR%\" && npm run dev"
 call :log "Frontend starting on http://localhost:5173"
 
 rem ---------------------------------------------------------------------------
