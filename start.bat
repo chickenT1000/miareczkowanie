@@ -58,9 +58,14 @@ popd
 call :log "Backend starting on http://localhost:8000"
 
 call :log "Frontend setup..."
-pushd "%FRONTEND_DIR%"
-npm install >> "%LOG_DIR%\frontend.log" 2>&1
-popd
+rem If node_modules already exists we can skip npm install (saves ~30 s)
+if exist "%FRONTEND_DIR%\node_modules" (
+    call :log "Frontend deps present (skipping npm install)"
+) else (
+    pushd "%FRONTEND_DIR%"
+    npm install >> "%LOG_DIR%\frontend.log" 2>&1
+    popd
+)
 rem ---------------------------------------------------------------------------
 rem  Launch frontend dev-server (dedicated window)
 rem ---------------------------------------------------------------------------
@@ -68,6 +73,7 @@ call :log "Launching frontend window..."
 pushd "%FRONTEND_DIR%"
 start "frontend" cmd /k npm run dev
 popd
+call :log "Frontend window launched"
 call :log "Frontend starting on http://localhost:5173"
 
 rem ---------------------------------------------------------------------------
