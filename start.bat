@@ -53,7 +53,7 @@ rem  Launch backend (dedicated window)
 rem ---------------------------------------------------------------------------
 call :log "Launching backend window..."
 pushd "%BACKEND_DIR%"
-start "backend" cmd /k ".venv\Scripts\python.exe" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+start "backend" cmd /d /k ".venv\Scripts\python.exe" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 popd
 call :log "Backend starting on http://localhost:8000"
 
@@ -71,7 +71,7 @@ rem  Launch frontend dev-server (dedicated window)
 rem ---------------------------------------------------------------------------
 call :log "Launching frontend window..."
 pushd "%FRONTEND_DIR%"
-start "frontend" cmd /k npm run dev
+start "frontend" cmd /d /k npm run dev
 popd
 call :log "Frontend window launched"
 call :log "Frontend starting on http://localhost:5173"
