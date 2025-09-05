@@ -237,10 +237,6 @@ def estimate_c_a(
     Returns:
         Estimated total sulfate concentration in mol/L
     """
-    # TODO: Implement robust C_A estimation
-    # This is a placeholder that will be fully implemented later
-    # The full implementation will use median and MAD for outlier rejection
-    
     if len(ph_values) == 0:
         return 0.0
     
@@ -261,9 +257,27 @@ def estimate_c_a(
         for na, h, oh, f_h in zip(na_values, h_values, oh_values, f_h_values)
     ]
     
-    # For now, just return the median as a simple robust estimator
-    # Full implementation will use MAD for outlier rejection
-    return float(np.median(c_a_estimates))
+    # Robust estimator: median with MAD-based outlier rejection
+    c_a_arr = np.asarray(c_a_estimates, dtype=float)
+    median_val = np.median(c_a_arr)
+
+    # Median absolute deviation
+    mad = np.median(np.abs(c_a_arr - median_val))
+
+    if mad == 0:  # all points identical or too few points
+        return float(median_val)
+
+    # Scale factor 1.4826 converts MAD to std-dev equivalent for normal dist.
+    threshold = 3.0 * 1.4826 * mad
+    inlier_mask = np.abs(c_a_arr - median_val) <= threshold
+
+    inliers = c_a_arr[inlier_mask]
+
+    # Fallback to overall median if no inliers (should be rare)
+    if inliers.size == 0:
+        return float(median_val)
+
+    return float(np.median(inliers))
 
 
 def process_row(

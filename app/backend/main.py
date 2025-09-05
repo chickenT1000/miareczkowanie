@@ -18,6 +18,7 @@ from schemas import (
     ProcessedRow,
     Peak,
     ModelData,
+    ExportRequest,
     Metal,
 )
 from io_csv import parse_csv_file
