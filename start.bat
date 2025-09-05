@@ -72,7 +72,7 @@ rem ---------------------------------------------------------------------------
 
 call :log "Waiting for backend to become ready..."
 for /l %%i in (1,1,30) do (
-    powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing http://localhost:8000/health -TimeoutSec 2)|Out-Null;exit 0}catch{exit 1}"
+    powershell -NoProfile -Command "try{(Invoke-WebRequest -UseBasicParsing http://localhost:8000/api/health -TimeoutSec 2)|Out-Null;exit 0}catch{exit 1}"
     if not errorlevel 1 (
         call :log "Backend is ready"
         goto :backend_ready
