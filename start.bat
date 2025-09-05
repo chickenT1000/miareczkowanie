@@ -7,6 +7,11 @@ set LOG_DIR=%ROOT%logs
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
+rem ---------------------------------------------------------------------------
+rem  Jump past helper label definitions
+rem ---------------------------------------------------------------------------
+goto :main
+
 rem helper to log to console and file
 :_init
 if not defined LOG_FILE set "LOG_FILE=%LOG_DIR%\start.log"
@@ -17,9 +22,13 @@ echo [%date% %time%] %~1
 echo [%date% %time%] %~1>>"%LOG_FILE%"
 goto :eof
 
+rem ---------------------------------------------------------------------------
+rem  -------------------------  MAIN FLOW  ------------------------------------
+rem ---------------------------------------------------------------------------
+:main
+
 call :_init
 
-rem ---------------------------------------------------------------------------
 rem  Start script
 rem ---------------------------------------------------------------------------
 
@@ -42,7 +51,7 @@ popd
 rem ---------------------------------------------------------------------------
 rem  Launch backend (background – same console)
 rem ---------------------------------------------------------------------------
-start /b "" cmd /c "cd /d \"%BACKEND_DIR%\" && \"%BACKEND_DIR%\\.venv\\Scripts\\python.exe\" -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload 1>>\"%LOG_DIR%\\backend.log\" 2>&1"
+start "backend" cmd /k "cd /d \"%BACKEND_DIR%\" && \"%BACKEND_DIR%\\.venv\\Scripts\\python.exe\" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload 1>>\"%LOG_DIR%\\backend.log\" 2>&1"
 call :log "Backend starting on http://localhost:8000"
 
 call :log "Frontend setup..."
@@ -52,7 +61,7 @@ popd
 rem ---------------------------------------------------------------------------
 rem  Launch frontend dev-server (background – same console)
 rem ---------------------------------------------------------------------------
-start /b "" cmd /c "cd /d \"%FRONTEND_DIR%\" && npm run dev 1>>\"%LOG_DIR%\\frontend.log\" 2>&1"
+start "frontend" cmd /k "cd /d \"%FRONTEND_DIR%\" && npm run dev 1>>\"%LOG_DIR%\\frontend.log\" 2>&1"
 call :log "Frontend starting on http://localhost:5173"
 
 rem ---------------------------------------------------------------------------
@@ -90,3 +99,5 @@ call :log "Browser launched"
 call :log "Done. Logs available in %LOG_DIR%"
 echo Press any key to exit this console (servers keep running in background)...
 pause >nul
+
+goto :eof
