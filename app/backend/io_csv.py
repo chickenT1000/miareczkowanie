@@ -35,8 +35,8 @@ def detect_separators(content: bytes) -> Tuple[str, str]:
         column_sep = ";"
     
     # Look for numeric patterns with comma as decimal
-    # This regex looks for numbers like "1,23" or "0,5" but not "1,000" (which is likely a thousands separator)
-    decimal_comma_pattern = re.compile(r'(?<!\d),\d{1,2}(?!\d)')
+    # Simple pattern like 1,23  or 0,5  (avoid 1,000 by limiting decimals to max 3)
+    decimal_comma_pattern = re.compile(r"\d+,\d{1,3}")
     if decimal_comma_pattern.search(sample):
         decimal_sep = ","
     
@@ -118,17 +118,18 @@ def find_data_section(reader: csv.reader) -> Tuple[List[str], int]:
     """
     for i, row in enumerate(reader):
         # Clean row values
-        cleaned_row = [cell.strip() for cell in row if cell.strip()]
-        
-        # Look for MODULE_A header
-        if cleaned_row and "MODULE_A" in cleaned_row[0]:
-            # Next row should contain column headers
+        cleaned_row = [cell.strip().strip('"').strip() for cell in row if cell.strip()]
+        # Case-insensitive search for MODULE_A in any cell
+        if any("module_a" in cell.lower() for cell in cleaned_row):
+            # Attempt to use next row as headers
             try:
                 header_row = next(reader)
-                # Return column names and the index of the next row (data start)
-                return header_row, i + 2
+                header_row = [h.strip().strip('"') for h in header_row]
+                # data start is the line right after the header we just consumed
+                return header_row, i + 1
             except StopIteration:
-                break
+                # Header exists but no data
+                return ["time", "module", "pH", "temperature"], i + 2
     
     # If we didn't find the header, use default column names
     return ["time", "module", "pH", "temperature"], 0
@@ -161,6 +162,8 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
     
     # Find data section
     column_names, data_start_idx = find_data_section(reader)
+    # Track whether we recognised the instrument format
+    instrument_found: bool = data_start_idx > 0
     
     # If we didn't find the data section, reset and try again with a simpler approach
     if data_start_idx == 0:
@@ -169,7 +172,7 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
         
         # Skip metadata rows until we find a row that looks like time data
         for i, row in enumerate(reader):
-            if len(row) >= 3 and re.search(r'\d+\s+seconds', row[0]):
+            if len(row) >= 3 and re.search(r'\d+\s*(seconds?|sec|s|min|m)', row[0].lower()):
                 data_start_idx = i
                 column_names = ["time", "module", "pH", "temperature"]
                 break
@@ -180,7 +183,11 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
         reader = csv.reader(f, delimiter=column_sep)
         # Skip to data start
         for _ in range(data_start_idx):
-            next(reader)
+            try:
+                next(reader)
+            except StopIteration:
+                # Reached EOF before expected; no data rows present
+                break
     
     # Parse data rows
     rows = []
@@ -202,11 +209,12 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
         temp_value = row[3].strip() if len(row) > 3 else ""
         
         # Skip rows that don't look like data
-        if not re.search(r'\d+\s+seconds', time_label):
+        if not re.search(r'\d+\s*(seconds?|sec|s|min|m)', time_label):
             continue
         
         # Extract seconds and time unit
         seconds, detected_unit = extract_seconds(time_label)
+        # Keep track of last non-seconds unit to report overall time_unit
         if detected_unit != "s":
             time_unit = detected_unit
         
@@ -233,7 +241,8 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
         "rows": rows,
         "time_unit": time_unit,
         "decimal_separator": decimal_sep,
-        "column_separator": column_sep
+        "column_separator": column_sep,
+        "instrument": instrument_found,
     }
 
 
@@ -317,7 +326,7 @@ def parse_csv_file(content: bytes) -> Dict[str, Any]:
     result = parse_uploaded_csv(content)
     
     # If we got no rows, try generic parser
-    if not result["rows"]:
+    if (not result["rows"]) and (result.get("instrument") is False):
         result = parse_generic_csv(content)
     
     return result
