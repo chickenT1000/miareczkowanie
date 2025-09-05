@@ -7,17 +7,22 @@ from typing import Dict, List, Optional, Union
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 import uvicorn
+
 from models import get_constants as _get_constants_data
 from schemas import (
     Constants,
     ImportResponse,
     ComputeSettings,
     ComputeResponse,
-    ExportRequest,
+    ProcessedRow,
+    Peak,
+    ModelData,
+    Metal,
 )
-from io_csv import parse_csv_file  # CSV parser integration
+from io_csv import parse_csv_file
+import chem
+import peaks
 
 # Environment configuration
 APP_ENV = os.getenv("APP_ENV", "dev")
@@ -88,13 +93,110 @@ async def compute_data(settings: ComputeSettings):
     
     Computes the H₂SO₄ model, excess base, and detects peaks.
     """
-    # Placeholder - actual computation will be implemented in chem.py and peaks.py
-    return {
-        "processed_table": [],
-        "model_data": {"pH": [], "B_model": []},
-        "peaks": [],
-        "c_a": 0.0,
-    }
+    try:
+        # Extract pH and time arrays using column mapping
+        ph_values = []
+        time_values = []
+        
+        for row in settings.rows:
+            # Get pH and time values using the column mapping
+            ph_key = settings.column_mapping.ph
+            time_key = settings.column_mapping.time
+            
+            if ph_key not in row or time_key not in row:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing required columns in data. Check column mapping."
+                )
+            
+            # Extract values and ensure they're numeric
+            ph = row.get(ph_key)
+            time = row.get(time_key)
+            
+            if not isinstance(ph, (int, float)) or not isinstance(time, (int, float)):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Non-numeric values found in pH or time columns."
+                )
+            
+            ph_values.append(ph)
+            time_values.append(time)
+        
+        # Process titration data using chem module
+        processed_rows, c_a = chem.process_titration_data(
+            ph_values=ph_values,
+            time_values=time_values,
+            c_b=settings.c_b,
+            q=settings.q,
+            v0=settings.v0,
+            time_unit="s",  # Assuming time is in seconds from CSV parser
+            start_index=settings.start_index,
+        )
+        
+        # Convert processed rows to ProcessedRow model
+        processed_table = [
+            ProcessedRow(
+                time=row["time"],
+                ph=row["pH"],
+                v_b=row["v_b"],
+                n_b=row["n_b"],
+                b_meas=row["b_meas"],
+                na=row["na"],
+                b_model=row["b_model"],
+                delta_b=row["delta_b"],
+                d_delta_b_d_ph=row["d_delta_b_d_ph"]
+            )
+            for row in processed_rows
+        ]
+        
+        # Extract pH and delta_b for peak detection
+        ph_for_peaks = [row["pH"] for row in processed_rows]
+        delta_b_for_peaks = [row["delta_b"] for row in processed_rows]
+        
+        # Detect and quantify peaks
+        detected_peaks = peaks.detect_and_quantify_peaks(
+            ph_values=ph_for_peaks,
+            delta_b_values=delta_b_for_peaks,
+            ph_cutoff=settings.ph_cutoff
+        )
+        
+        # Convert detected peaks to Peak model
+        peak_models = [
+            Peak(
+                peak_id=peak["peak_id"],
+                ph_start=peak["ph_start"],
+                ph_apex=peak["ph_apex"],
+                ph_end=peak["ph_end"],
+                delta_b_step=peak["delta_b_step"],
+                metal=None,  # Default to None as per instructions
+                stoichiometry=None,  # Default to None as per instructions
+                c_metal=None,
+                mg_l=None,
+                notes=None
+            )
+            for peak in detected_peaks
+        ]
+        
+        # Build model data
+        model_data = ModelData(
+            ph=[row["pH"] for row in processed_rows],
+            b_model=[row["b_model"] for row in processed_rows]
+        )
+        
+        # Return compute response
+        return ComputeResponse(
+            processed_table=processed_table,
+            model_data=model_data,
+            peaks=peak_models,
+            c_a=c_a
+        )
+    
+    except Exception as exc:
+        # Handle any unexpected errors
+        raise HTTPException(
+            status_code=500,
+            detail=f"Computation failed: {str(exc)}"
+        ) from exc
 
 @app.post("/api/export")
 async def export_data(request: ExportRequest):

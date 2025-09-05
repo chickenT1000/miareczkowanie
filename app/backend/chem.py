@@ -29,7 +29,6 @@ def compute_h_from_ph(ph: float) -> float:
     Returns:
         H+ concentration in mol/L
     """
-    # TODO: Implement H+ calculation
     return 10 ** (-ph)
 
 
@@ -44,7 +43,6 @@ def compute_oh(h: float, k_w: float = K_W) -> float:
     Returns:
         OH- concentration in mol/L
     """
-    # TODO: Implement OH- calculation
     return k_w / h
 
 
@@ -64,7 +62,6 @@ def compute_sulfate_fraction(h: float, k_a2: float = K_A2) -> float:
     Returns:
         Sulfate fraction f(H)
     """
-    # TODO: Implement sulfate fraction calculation
     return (h + 2 * k_a2) / (h + k_a2)
 
 
@@ -84,7 +81,6 @@ def time_to_base_volume(
     Returns:
         Base volume in mL
     """
-    # TODO: Implement time to volume conversion
     # If time is in seconds, convert to minutes first
     if time_unit == "s":
         time_min = time / 60
@@ -108,7 +104,6 @@ def compute_base_moles(
     Returns:
         Base moles in mol
     """
-    # TODO: Implement base moles calculation
     return c_b * v_b / 1000  # Convert mL to L
 
 
@@ -128,7 +123,6 @@ def compute_normalized_base(
     Returns:
         Normalized base concentration in mol/L
     """
-    # TODO: Implement normalized base calculation
     return n_b / (v0 / 1000)
 
 
@@ -150,7 +144,6 @@ def compute_sodium_with_dilution(
     Returns:
         Sodium concentration with dilution in mol/L
     """
-    # TODO: Implement sodium with dilution calculation
     return c_b * v_b / (v0 + v_b)
 
 
@@ -174,7 +167,6 @@ def compute_h2so4_model(
     Returns:
         Model sodium concentration in mol/L
     """
-    # TODO: Implement H₂SO₄ model calculation
     return c_a * sulfate_fraction + oh - h
 
 
@@ -196,7 +188,6 @@ def convert_na_to_normalized_base(
     Returns:
         Model base in mol/L (normalized to initial volume)
     """
-    # TODO: Implement conversion to normalized base
     return na_model / (1 - na_model / c_b)
 
 
@@ -216,7 +207,6 @@ def convert_normalized_base_to_na(
     Returns:
         Sodium concentration in mol/L
     """
-    # TODO: Implement conversion to sodium
     return b_meas / (1 + b_meas / c_b)
 
 
