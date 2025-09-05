@@ -234,7 +234,9 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
         rows.append(normalized_row)
     
     # Prepare column mapping for frontend
-    frontend_columns = ["time_label", "module", "pH", "temperature"]
+    # Put the numeric “time” first so the frontend auto-selects it,
+    # followed by the main numeric columns, then the textual label/module.
+    frontend_columns = ["time", "pH", "temperature", "time_label", "module"]
     
     return {
         "columns": frontend_columns,

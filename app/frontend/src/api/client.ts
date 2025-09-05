@@ -3,6 +3,69 @@
  * Provides functions for health checks and data computation.
  */
 
+/* ---------------------------------------------------------------------------
+ *  Types (subset of backend pydantic models, enough for Phase 1 UI)
+ * ------------------------------------------------------------------------- */
+
+export interface ImportResponse {
+  columns: string[];
+  rows: Record<string, number | string>[];
+  time_unit: string;
+  decimal_separator: string;
+  column_separator: string;
+}
+
+export interface ColumnMapping {
+  ph: string;
+  time: string;
+  pump_flow?: string | null;
+  naoh_conc?: string | null;
+}
+
+export interface ComputeSettings {
+  c_b: number;
+  q: number;
+  v0: number;
+  t: number;
+  ph_cutoff: number;
+  start_index: number;
+  column_mapping: ColumnMapping;
+  rows: Record<string, number | string>[];
+}
+
+export interface ProcessedRow {
+  time: number;
+  ph: number;
+  v_b: number;
+  n_b: number;
+  b_meas: number;
+  na: number;
+  b_model: number;
+  delta_b: number;
+  d_delta_b_d_ph: number;
+}
+
+export interface ModelData {
+  ph: number[];
+  b_model: number[];
+}
+
+export interface Peak {
+  peak_id: number;
+  ph_start: number;
+  ph_apex: number;
+  ph_end: number;
+  delta_b_step: number;
+  // optional assignment fields omitted for brevity
+}
+
+export interface ComputeResponse {
+  processed_table: ProcessedRow[];
+  model_data: ModelData;
+  peaks: Peak[];
+  c_a: number;
+}
+
 /**
  * Get the health status of the backend API.
  * @returns The health status response.
@@ -13,13 +76,45 @@ export async function getHealth(): Promise<any> {
 }
 
 /**
- * Send data to the backend for computation.
- * @param data FormData or object containing the data to compute.
- * @returns The computation results.
+ * Upload a CSV file to the backend import endpoint.
+ * @param file CSV file selected by the user.
+ * @returns Parsed columns and sample rows detected by the backend.
  */
-export async function compute(data: FormData | object): Promise<any> {
-  // TODO: Implement actual computation API call
-  // Should POST to /api/compute with the provided data
-  console.log('Compute called with:', data);
-  return null;
+export async function uploadCsv(file: File): Promise<ImportResponse> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+
+  const res = await fetch('/api/import', {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Import failed: ${await res.text()}`);
+  }
+
+  return res.json() as Promise<ImportResponse>;
+}
+
+/**
+ * Send computation settings to the backend and receive processed data.
+ * @param settings Configuration + raw rows/mapping.
+ * @returns Complete computation response.
+ */
+export async function compute(
+  settings: ComputeSettings,
+): Promise<ComputeResponse> {
+  const res = await fetch('/api/compute', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(settings),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Compute failed: ${await res.text()}`);
+  }
+
+  return res.json() as Promise<ComputeResponse>;
 }
