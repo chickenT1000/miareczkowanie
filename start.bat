@@ -93,7 +93,7 @@ call :log "Frontend port not open in time"
 rem ---------------------------------------------------------------------------
 rem  Open browser once both are up
 rem ---------------------------------------------------------------------------
-start "" "http://localhost:5173"
+explorer http://localhost:5173
 call :log "Browser launched"
 
 call :log "Done. Logs available in %LOG_DIR%"
