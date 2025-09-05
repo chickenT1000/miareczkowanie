@@ -49,9 +49,12 @@ pushd "%BACKEND_DIR%"
 "%BACKEND_DIR%\.venv\Scripts\python.exe" -m pip install -r requirements.txt >> "%LOG_DIR%\backend.log" 2>&1
 popd
 rem ---------------------------------------------------------------------------
-rem  Launch backend (background – same console)
+rem  Launch backend (dedicated window)
 rem ---------------------------------------------------------------------------
-start "backend" cmd /k "cd /d \"%BACKEND_DIR%\" && \"%BACKEND_DIR%\\.venv\\Scripts\\python.exe\" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload"
+call :log "Launching backend window..."
+pushd "%BACKEND_DIR%"
+start "backend" cmd /k ".venv\Scripts\python.exe" -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+popd
 call :log "Backend starting on http://localhost:8000"
 
 call :log "Frontend setup..."
@@ -59,9 +62,12 @@ pushd "%FRONTEND_DIR%"
 npm install >> "%LOG_DIR%\frontend.log" 2>&1
 popd
 rem ---------------------------------------------------------------------------
-rem  Launch frontend dev-server (background – same console)
+rem  Launch frontend dev-server (dedicated window)
 rem ---------------------------------------------------------------------------
-start "frontend" cmd /k "cd /d \"%FRONTEND_DIR%\" && npm run dev"
+call :log "Launching frontend window..."
+pushd "%FRONTEND_DIR%"
+start "frontend" cmd /k npm run dev
+popd
 call :log "Frontend starting on http://localhost:5173"
 
 rem ---------------------------------------------------------------------------
