@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-import { getHealth, uploadCsv, compute } from './api/client'
+import { getHealth, uploadCsv, compute, exportData } from './api/client'
 import type {
   ImportResponse,
   ColumnMapping,
@@ -34,6 +34,37 @@ function App() {
   })
   const [computing, setComputing] = useState(false)
   const [result, setResult] = useState<ComputeResponse | null>(null)
+  // Preview arrays for pH-time plot
+  const previewPh: number[] =
+    importData && mapping
+      ? (importData.rows
+          .map((r) => Number(r[mapping.ph]))
+          .filter((v) => !Number.isNaN(v)) as number[])
+      : []
+  const previewTime: number[] =
+    importData && mapping
+      ? (importData.rows
+          .map((r) => Number(r[mapping.time]))
+          .filter((v) => !Number.isNaN(v)) as number[])
+      : []
+
+  /* ---------------------------------------------------------------------- */
+  /* Helper: trigger client-side download                                   */
+  /* ---------------------------------------------------------------------- */
+  const downloadFile = (filename: string, contentType: string, data: any) => {
+    const blob =
+      typeof data === 'string'
+        ? new Blob([data], { type: contentType })
+        : new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
 
   useEffect(() => {
     let mounted = true
@@ -170,6 +201,33 @@ function App() {
           &nbsp;&nbsp;
           <label>
             Time column:&nbsp;
+      {/* ------------------------------------------------------------------ */}
+      {/* Preview plot pH vs time                                            */}
+      {/* ------------------------------------------------------------------ */}
+      {previewPh.length > 2 && (
+        <section style={{ marginTop: 16 }}>
+          <h3>Preview: pH vs time</h3>
+          <Plot
+            style={{ width: '100%', height: 300 }}
+            data={[
+              {
+                x: previewTime,
+                y: previewPh,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'pH',
+              },
+            ]}
+            layout={{
+              title: 'pH vs time',
+              xaxis: { title: `time (${importData?.time_unit})` },
+              yaxis: { title: 'pH' },
+            }}
+            useResizeHandler
+          />
+        </section>
+      )}
+
             <select
               value={mapping.time}
               onChange={(e) => setMapping({ ...mapping, time: e.target.value })}
@@ -268,6 +326,37 @@ function App() {
           <p style={{ fontSize: 16, fontWeight: 500 }}>
             Estimated C<sub>A</sub>: {result.c_a.toFixed(4)} mol/L
           </p>
+          <h3>B<sub>meas</sub> &amp; B<sub>model</sub> vs pH</h3>
+          <Plot
+            style={{ width: '100%', height: 400 }}
+            data={[
+              {
+                x: result.processed_table.map((r) => r.ph),
+                y: result.processed_table.map((r) => r.b_meas),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'B_meas',
+              },
+              {
+                x: result.model_data.ph,
+                y: result.model_data.b_model,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'B_model',
+                line: { dash: 'dash' },
+              },
+            ]}
+            layout={{
+              title: 'Measured vs model base',
+              xaxis: { title: 'pH' },
+              yaxis: { title: 'B (mol/L)' },
+            }}
+            useResizeHandler
+          />
+          <p style={{ fontSize: 13, marginTop: 4 }}>
+            Comparison of measured normalised base (B<sub>meas</sub>) with the theoretical
+            H₂SO₄-only model (B<sub>model</sub>).
+          </p>
           <h3>Plots</h3>
           <Plot
             style={{ width: '100%', height: 400 }}
@@ -330,6 +419,45 @@ function App() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* -------------------------------------------------------------- */}
+          {/* Export buttons                                                */}
+          {/* -------------------------------------------------------------- */}
+          <h3>Export</h3>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              onClick={async () => {
+                const res = await exportData('csv', 'processed')
+                downloadFile(res.filename, res.content_type, res.data)
+              }}
+            >
+              Processed CSV
+            </button>
+            <button
+              onClick={async () => {
+                const res = await exportData('json', 'processed')
+                downloadFile(res.filename, res.content_type, res.data)
+              }}
+            >
+              Processed JSON
+            </button>
+            <button
+              onClick={async () => {
+                const res = await exportData('json', 'peaks')
+                downloadFile(res.filename, res.content_type, res.data)
+              }}
+            >
+              Peaks JSON
+            </button>
+            <button
+              onClick={async () => {
+                const res = await exportData('json', 'session')
+                downloadFile(res.filename, res.content_type, res.data)
+              }}
+            >
+              Session JSON
+            </button>
           </div>
         </section>
       )}
