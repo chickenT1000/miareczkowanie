@@ -337,21 +337,42 @@ function App() {
                 mode: 'lines',
                 name: 'Measured (B_meas)',
               },
-              {
-                x: (() => {
-                  // Mask extreme model values
-                  const maxBMeas = Math.max(...result.processed_table.map(r => r.b_meas));
-                  const threshold = 5 * maxBMeas;
-                  return result.model_data.b_model.map(v => 
-                    (Math.abs(v) > threshold) ? null : v
-                  );
-                })(),
-                y: result.model_data.ph,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Model (B_model)',
-                line: { dash: 'dash' },
-              },
+              (() => {
+                // Prefer standalone curve if provided by backend
+                const hasStandalone =
+                  result.model_data.ph_model &&
+                  result.model_data.b_model_curve &&
+                  result.model_data.ph_model.length ===
+                    result.model_data.b_model_curve.length &&
+                  result.model_data.ph_model.length > 0
+
+                if (hasStandalone) {
+                  return {
+                    x: result.model_data.b_model_curve as number[],
+                    y: result.model_data.ph_model as number[],
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Model (standalone)',
+                    line: { dash: 'dash' },
+                  }
+                }
+
+                // Legacy fallback: use B_model aligned to measured pH
+                const maxBMeas = Math.max(
+                  ...result.processed_table.map((r) => r.b_meas),
+                )
+                const threshold = 5 * maxBMeas
+                return {
+                  x: result.model_data.b_model.map((v) =>
+                    Math.abs(v) > threshold ? null : v,
+                  ),
+                  y: result.model_data.ph,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Model (B_model)',
+                  line: { dash: 'dash' },
+                }
+              })(),
             ]}
             layout={{
               title: 'Titration Curve: pH vs Base Amount',

@@ -14,6 +14,7 @@ All concentrations are in mol/L unless otherwise specified.
 from typing import Dict, List, Optional, Tuple, Union, Sequence
 import numpy as np
 from scipy import stats
+from scipy import optimize
 
 # Import constants from models.py
 from models import K_A2, K_W
@@ -209,6 +210,83 @@ def convert_normalized_base_to_na(
     """
     return b_meas / (1 + b_meas / c_b)
 
+
+# --------------------------------------------------------------------------- #
+#  New helpers: standalone model curve generation                             #
+# --------------------------------------------------------------------------- #
+
+def solve_h_from_na(na: float, c_a: float) -> float:
+    """
+    Solve for H⁺ given Na (mol/L) and total sulfate C_A using electroneutrality.
+
+    Equation:  g(h) = C_A * f(h) + K_W / h - h - Na  = 0
+
+    Args:
+        na: Sodium concentration (mol/L)
+        c_a: Total sulfate concentration (mol/L)
+
+    Returns:
+        H⁺ concentration (mol/L)
+
+    Raises:
+        ValueError if root not bracketed even after expanding search range.
+    """
+
+    def g(h: float) -> float:
+        f_h = compute_sulfate_fraction(h)
+        return c_a * f_h + K_W / h - h - na
+
+    # Initial conservative bracket in acidic domain up to 1 M
+    lower, upper = 1e-14, 1.0
+
+    # If g(lower) and g(upper) have same sign, expand the bracket
+    if np.sign(g(lower)) == np.sign(g(upper)):
+        lower, upper = 1e-16, 10.0  # broaden search
+
+    if np.sign(g(lower)) == np.sign(g(upper)):
+        raise ValueError("Root not bracketed for h given Na; check parameters.")
+
+    return optimize.brentq(g, lower, upper, maxiter=100, xtol=1e-14)
+
+
+def build_model_curve(
+    c_a: float,
+    c_b: float,
+    num_points: int = 200,
+) -> Tuple[List[float], List[float]]:
+    """
+    Generate a standalone H₂SO₄ model curve (pH vs B) up to pH 7.
+
+    Args:
+        c_a: Total sulfate concentration (mol/L)
+        c_b: Base concentration (mol/L)
+        num_points: Number of points for the curve
+
+    Returns:
+        Tuple (ph_list, b_list) with length `num_points`
+    """
+    # Maximum Na corresponding to pH 7
+    h7 = 1e-7
+    na_max = min(c_a * compute_sulfate_fraction(h7), 0.999 * c_b)
+
+    na_grid = np.linspace(0.0, na_max, num_points)
+
+    ph_list: List[float] = []
+    b_list: List[float] = []
+
+    for na in na_grid:
+        try:
+            h = solve_h_from_na(float(na), c_a)
+        except ValueError:
+            # Skip if solver fails (should be rare near bounds)
+            continue
+        ph_val = -np.log10(h)
+        b_val = convert_na_to_normalized_base(float(na), c_b)
+
+        ph_list.append(ph_val)
+        b_list.append(b_val)
+
+    return ph_list, b_list
 
 def estimate_c_a(
     ph_values: Sequence[float],

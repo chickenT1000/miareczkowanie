@@ -101,6 +101,15 @@ class ModelData(BaseModel):
     
     ph: List[float] = Field(..., description="pH values")
     b_model: List[float] = Field(..., description="Model base values (mol/L)")
+    # Extended pure model curve (independent of measured sample points)
+    ph_model: Optional[List[float]] = Field(
+        None,
+        description="Calculated pH values for the standalone model curve (e.g., sweep until pH 7)",
+    )
+    b_model_curve: Optional[List[float]] = Field(
+        None,
+        description="Corresponding model base values for the standalone curve (mol/L)",
+    )
 
 
 class ComputeResponse(BaseModel):

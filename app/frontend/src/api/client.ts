@@ -48,6 +48,10 @@ export interface ProcessedRow {
 export interface ModelData {
   ph: number[];
   b_model: number[];
+  /** Optional standalone model curve up to pH ≈ 7 (or backend limit) */
+  ph_model?: number[];
+  /** Corresponding base values for the standalone model curve */
+  b_model_curve?: number[];
 }
 
 export interface Peak {
