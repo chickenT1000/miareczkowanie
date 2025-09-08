@@ -31,9 +31,14 @@ function App() {
     v0: 100,
     t: 25,
     ph_cutoff: 6.5,
+    c_a_known: 0.2,
+    use_c_a_known: false,
+    ph_ignore_below: 1.0,
+    show_ph_aligned: false,
   })
   const [computing, setComputing] = useState(false)
   const [result, setResult] = useState<ComputeResponse | null>(null)
+  const [showPhAlignedDeltaB, setShowPhAlignedDeltaB] = useState(true)
   // Preview arrays for pH-time plot
   const previewPh: number[] =
     importData && mapping
@@ -201,6 +206,18 @@ function App() {
           &nbsp;&nbsp;
           <label>
             Time column:&nbsp;
+            <select
+              value={mapping.time}
+              onChange={(e) => setMapping({ ...mapping, time: e.target.value })}
+            >
+              {importData.columns.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+        </section>
+      )}
+
       {/* ------------------------------------------------------------------ */}
       {/* Preview plot pH vs time                                            */}
       {/* ------------------------------------------------------------------ */}
@@ -225,18 +242,6 @@ function App() {
             }}
             useResizeHandler
           />
-        </section>
-      )}
-
-            <select
-              value={mapping.time}
-              onChange={(e) => setMapping({ ...mapping, time: e.target.value })}
-            >
-              {importData.columns.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </label>
         </section>
       )}
 
@@ -289,6 +294,54 @@ function App() {
               style={{ width: 80 }}
             />
           </label>
+          
+          <div style={{ marginTop: 12 }}>
+            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={settings.use_c_a_known}
+                onChange={(e) => setSettings({ ...settings, use_c_a_known: e.target.checked })}
+                style={{ marginRight: 4 }}
+              />
+              Use known C<sub>A</sub> (mol/L):{' '}
+            </label>
+            <input
+              type="number"
+              step="any"
+              value={settings.c_a_known}
+              onChange={(e) => setSettings({ ...settings, c_a_known: parseFloat(e.target.value) })}
+              style={{ width: 80, marginRight: 12 }}
+              disabled={!settings.use_c_a_known}
+            />
+            
+            <label style={{ marginRight: 12 }}>
+              Ignore pH below (for baseline C<sub>A</sub> estimation):{' '}
+              <input
+                type="number"
+                step="any"
+                value={settings.ph_ignore_below}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                  setSettings({ ...settings, ph_ignore_below: val as any });
+                }}
+                style={{ width: 80 }}
+                placeholder="Optional"
+              />
+            </label>
+          </div>
+          
+          <div style={{ marginTop: 12 }}>
+            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={settings.show_ph_aligned}
+                onChange={(e) => setSettings({ ...settings, show_ph_aligned: e.target.checked })}
+                style={{ marginRight: 4 }}
+              />
+              Show pH-aligned model overlay
+            </label>
+          </div>
+          
           <div style={{ marginTop: 12 }}>
             <button
               disabled={computing}
@@ -298,6 +351,8 @@ function App() {
                 try {
                   const payload: ComputeSettings = {
                     ...settings,
+                    c_a_known: settings.use_c_a_known ? settings.c_a_known : null,
+                    ph_ignore_below: settings.ph_ignore_below || null,
                     start_index: 0,
                     column_mapping: mapping,
                     rows: importData.rows,
@@ -324,7 +379,7 @@ function App() {
         <section>
           <h2>4. Results</h2>
           <p style={{ fontSize: 16, fontWeight: 500 }}>
-            Estimated C<sub>A</sub>: {result.c_a.toFixed(4)} mol/L
+            {settings.use_c_a_known ? 'Using known' : 'Estimated'} C<sub>A</sub>: {result.c_a.toFixed(4)} mol/L
           </p>
           <h3>Measured vs Model Base</h3>
           <Plot
@@ -373,6 +428,16 @@ function App() {
                   line: { dash: 'dash' },
                 }
               })(),
+              ...(settings.show_ph_aligned && result.model_data.b_model_ph_aligned ? [
+                {
+                  x: result.model_data.b_model_ph_aligned.filter((v): v is number => v !== null),
+                  y: result.model_data.ph.filter((_, i) => result.model_data.b_model_ph_aligned?.[i] !== null),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Model (pH-aligned)',
+                  line: { dash: 'dashdot', color: 'rgba(255, 100, 50, 0.8)' },
+                }
+              ] : []),
             ]}
             layout={{
               title: 'Titration Curve: pH vs Base Amount',
@@ -386,23 +451,45 @@ function App() {
             the theoretical H₂SO₄-only model (dashed line). Extreme model values are masked for better visualization.
           </p>
           <h3>Plots</h3>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ marginRight: 12 }}>ΔB vs pH</span>
+            {result.model_data.delta_b_ph_aligned && (
+              <label style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={showPhAlignedDeltaB && settings.show_ph_aligned}
+                  onChange={(e) => setShowPhAlignedDeltaB(e.target.checked)}
+                  disabled={!settings.show_ph_aligned}
+                  style={{ marginRight: 4 }}
+                />
+                Use pH-aligned ΔB
+              </label>
+            )}
+          </div>
           <Plot
             style={{ width: '100%', height: 400 }}
             data={[
               {
                 x: result.processed_table.map((r) => r.ph),
-                y: result.processed_table.map((r) => r.delta_b),
+                y: showPhAlignedDeltaB && settings.show_ph_aligned && result.model_data.delta_b_ph_aligned
+                  ? result.model_data.delta_b_ph_aligned.filter((v): v is number => v !== null)
+                  : result.processed_table.map((r) => r.delta_b),
                 type: 'scatter',
                 mode: 'lines',
-                name: 'ΔB',
+                name: showPhAlignedDeltaB && settings.show_ph_aligned ? 'ΔB (pH-aligned)' : 'ΔB',
               },
             ]}
-            layout={{ title: 'ΔB vs pH', xaxis: { title: 'pH' }, yaxis: { title: 'ΔB (mol/L)' } }}
+            layout={{ 
+              title: showPhAlignedDeltaB && settings.show_ph_aligned ? 'ΔB (pH-aligned) vs pH' : 'ΔB vs pH',
+              xaxis: { title: 'pH' }, 
+              yaxis: { title: 'ΔB (mol/L)' } 
+            }}
             useResizeHandler
           />
           <p style={{ fontSize: 13, marginTop: 4 }}>
             ΔB is the difference between measured and modelled base dosage – it highlights
-            deviations due to neutralisation.
+            deviations due to neutralisation. {showPhAlignedDeltaB && settings.show_ph_aligned && 
+            'pH-aligned ΔB compares at the same pH rather than same base amount, reducing artifacts near vertical regions.'}
           </p>
           <Plot
             style={{ width: '100%', height: 400 }}

@@ -144,6 +144,9 @@ async def compute_data(settings: ComputeSettings):
             v0=settings.v0,
             time_unit="s",  # Assuming time is in seconds from CSV parser
             start_index=settings.start_index,
+            # new overrides
+            c_a_override=settings.c_a_known,
+            ph_ignore_below=settings.ph_ignore_below,
         )
         
         # Convert processed rows to ProcessedRow model
@@ -199,12 +202,39 @@ async def compute_data(settings: ComputeSettings):
             # Fallback to empty curve if solver fails for exotic params
             ph_curve, b_curve = [], []
 
+        # ------------------------------------------------------------------
+        # pH-aligned model values for each measured point
+        # ------------------------------------------------------------------
+        import math
+
+        b_model_ph_aligned: List[Optional[float]] = []
+        delta_b_ph_aligned: List[Optional[float]] = []
+        for row in processed_rows:
+            try:
+                b_at_ph = chem.find_b_for_ph(
+                    c_a,
+                    settings.c_b,
+                    row["pH"],
+                    b_hint=row["b_meas"],
+                )
+            except Exception:
+                b_at_ph = float("nan")
+
+            if b_at_ph is None or math.isnan(b_at_ph):
+                b_model_ph_aligned.append(None)
+                delta_b_ph_aligned.append(None)
+            else:
+                b_model_ph_aligned.append(b_at_ph)
+                delta_b_ph_aligned.append(row["b_meas"] - b_at_ph)
+
         # Build model data (measured-aligned points + standalone curve)
         model_data = ModelData(
             ph=[row["pH"] for row in processed_rows],
             b_model=[row["b_model"] for row in processed_rows],
             ph_model=ph_curve,
             b_model_curve=b_curve,
+            b_model_ph_aligned=b_model_ph_aligned,
+            delta_b_ph_aligned=delta_b_ph_aligned,
         )
         
         # Return compute response

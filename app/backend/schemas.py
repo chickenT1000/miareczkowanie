@@ -92,6 +92,21 @@ class ComputeSettings(BaseModel):
     t: float = Field(25.0, description="Temperature (°C)")
     ph_cutoff: float = Field(6.5, description="pH cutoff for peak detection")
     start_index: int = Field(0, description="Start index for calculations")
+    # ---------------------------- New options ----------------------------- #
+    c_a_known: Optional[float] = Field(
+        None,
+        description=(
+            "If provided, use this fixed total sulfate concentration (mol/L) "
+            "instead of estimating it from the baseline window."
+        ),
+    )
+    ph_ignore_below: Optional[float] = Field(
+        None,
+        description=(
+            "Rows with pH below this value are ignored when estimating "
+            "C_A (only applies if c_a_known is not provided)."
+        ),
+    )
     column_mapping: ColumnMapping = Field(..., description="Column mapping")
     rows: List[Dict[str, Union[float, str]]] = Field(..., description="Data rows")
 
@@ -109,6 +124,15 @@ class ModelData(BaseModel):
     b_model_curve: Optional[List[float]] = Field(
         None,
         description="Corresponding model base values for the standalone curve (mol/L)",
+    )
+    # --------------------- pH-registered subtraction ---------------------- #
+    b_model_ph_aligned: Optional[List[float]] = Field(
+        None,
+        description="Model base values evaluated at the same pH as each measurement",
+    )
+    delta_b_ph_aligned: Optional[List[float]] = Field(
+        None,
+        description="Excess base ΔB computed with pH-aligned model values",
     )
 
 

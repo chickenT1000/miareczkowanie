@@ -29,6 +29,10 @@ export interface ComputeSettings {
   t: number;
   ph_cutoff: number;
   start_index: number;
+  /** If provided, use this fixed total sulfate concentration instead of estimating it */
+  c_a_known?: number | null;
+  /** Ignore rows with pH below this value when estimating C_A (only if c_a_known is null) */
+  ph_ignore_below?: number | null;
   column_mapping: ColumnMapping;
   rows: Record<string, number | string>[];
 }
@@ -52,6 +56,10 @@ export interface ModelData {
   ph_model?: number[];
   /** Corresponding base values for the standalone model curve */
   b_model_curve?: number[];
+  /** Model base values evaluated at the same pH as each measurement */
+  b_model_ph_aligned?: (number | null)[];
+  /** ΔB computed using pH-aligned model values */
+  delta_b_ph_aligned?: (number | null)[];
 }
 
 export interface Peak {
