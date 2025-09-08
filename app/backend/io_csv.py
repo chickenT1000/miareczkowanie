@@ -157,7 +157,9 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
     text = content.decode('utf-8', errors='ignore')
     
     # Create CSV reader
-    f = io.StringIO(text)
+    # newline='' prevents csv module from interpreting embedded '\r' or '\n'
+    # inside quoted fields as record terminators (see Python csv docs).
+    f = io.StringIO(text, newline='')
     reader = csv.reader(f, delimiter=column_sep)
     
     # Find data section
@@ -270,7 +272,8 @@ def parse_generic_csv(content: bytes) -> Dict[str, Any]:
     text = content.decode('utf-8', errors='ignore')
     
     # Create CSV reader
-    f = io.StringIO(text)
+    # Use newline='' for robust handling of CR/LF inside quoted fields
+    f = io.StringIO(text, newline='')
     reader = csv.reader(f, delimiter=column_sep)
     
     # Try to read header row
