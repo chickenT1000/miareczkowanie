@@ -33,6 +33,10 @@ export interface ComputeSettings {
   c_a_known?: number | null;
   /** Ignore rows with pH below this value when estimating C_A (only if c_a_known is null) */
   ph_ignore_below?: number | null;
+  /** Use contact-point anchoring instead of baseline estimate (only if c_a_known is null) */
+  use_contact_point?: boolean;
+  /** pH threshold to pick the first measurement as the contact point anchor */
+  contact_ph_min?: number;
   column_mapping: ColumnMapping;
   rows: Record<string, number | string>[];
 }
@@ -60,6 +64,10 @@ export interface ModelData {
   b_model_ph_aligned?: (number | null)[];
   /** ΔB computed using pH-aligned model values */
   delta_b_ph_aligned?: (number | null)[];
+  /** Model base values after horizontal shift at the contact point */
+  b_model_ph_contacted?: (number | null)[];
+  /** ΔB computed with contact-point–anchored model */
+  delta_b_ph_contacted?: (number | null)[];
 }
 
 export interface Peak {

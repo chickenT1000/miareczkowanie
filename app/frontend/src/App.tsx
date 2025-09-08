@@ -37,6 +37,8 @@ function App() {
     use_c_a_known: false,
     ph_ignore_below: 1.0,
     show_ph_aligned: false,
+    use_contact_point: true,
+    contact_ph_min: 1.0,
   })
   const [computing, setComputing] = useState(false)
   const [result, setResult] = useState<ComputeResponse | null>(null)
@@ -347,6 +349,30 @@ function App() {
             <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
               <input
                 type="checkbox"
+                checked={settings.use_contact_point}
+                onChange={(e) => setSettings({ ...settings, use_contact_point: e.target.checked })}
+                style={{ marginRight: 4 }}
+                disabled={settings.use_c_a_known}
+              />
+              Use contact point (when C<sub>A</sub> unknown)
+            </label>
+            <label style={{ marginRight: 12 }}>
+              Contact pH min:{' '}
+              <input
+                type="number"
+                step="any"
+                value={settings.contact_ph_min}
+                onChange={(e) => setSettings({ ...settings, contact_ph_min: parseFloat(e.target.value) })}
+                style={{ width: 80 }}
+                disabled={settings.use_c_a_known || !settings.use_contact_point}
+              />
+            </label>
+          </div>
+          
+          <div style={{ marginTop: 12 }}>
+            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+              <input
+                type="checkbox"
                 checked={settings.show_ph_aligned}
                 onChange={(e) => setSettings({ ...settings, show_ph_aligned: e.target.checked })}
                 style={{ marginRight: 4 }}
@@ -366,6 +392,8 @@ function App() {
                     ...settings,
                     c_a_known: settings.use_c_a_known ? settings.c_a_known : null,
                     ph_ignore_below: settings.ph_ignore_below || null,
+                    use_contact_point: settings.use_contact_point,
+                    contact_ph_min: settings.contact_ph_min,
                     start_index: 0,
                     column_mapping: mapping,
                     rows: importData.rows,
@@ -451,6 +479,17 @@ function App() {
                   line: { dash: 'dashdot', color: 'rgba(255, 100, 50, 0.8)' },
                 }
               ] : []),
+              ...(settings.show_ph_aligned && settings.use_contact_point && 
+                  result.model_data.b_model_ph_contacted ? [
+                {
+                  x: result.model_data.b_model_ph_contacted.filter((v): v is number => v !== null),
+                  y: result.model_data.ph.filter((_, i) => result.model_data.b_model_ph_contacted?.[i] !== null),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Model (contacted)',
+                  line: { dash: 'dot', color: 'rgba(50, 150, 255, 0.8)' },
+                }
+              ] : []),
             ]}
             layout={{
               title: 'Titration Curve: pH vs Base Amount',
@@ -484,16 +523,41 @@ function App() {
             data={[
               {
                 x: result.processed_table.map((r) => r.ph),
-                y: showPhAlignedDeltaB && settings.show_ph_aligned && result.model_data.delta_b_ph_aligned
-                  ? result.model_data.delta_b_ph_aligned.filter((v): v is number => v !== null)
-                  : result.processed_table.map((r) => r.delta_b),
+                y: (() => {
+                  if (showPhAlignedDeltaB && settings.show_ph_aligned) {
+                    if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                      return result.model_data.delta_b_ph_contacted.filter((v): v is number => v !== null);
+                    } else if (result.model_data.delta_b_ph_aligned) {
+                      return result.model_data.delta_b_ph_aligned.filter((v): v is number => v !== null);
+                    }
+                  }
+                  return result.processed_table.map((r) => r.delta_b);
+                })(),
                 type: 'scatter',
                 mode: 'lines',
-                name: showPhAlignedDeltaB && settings.show_ph_aligned ? 'ΔB (pH-aligned)' : 'ΔB',
+                name: (() => {
+                  if (showPhAlignedDeltaB && settings.show_ph_aligned) {
+                    if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                      return 'ΔB (contacted)';
+                    } else {
+                      return 'ΔB (pH-aligned)';
+                    }
+                  }
+                  return 'ΔB';
+                })(),
               },
             ]}
             layout={{ 
-              title: showPhAlignedDeltaB && settings.show_ph_aligned ? 'ΔB (pH-aligned) vs pH' : 'ΔB vs pH',
+              title: (() => {
+                if (showPhAlignedDeltaB && settings.show_ph_aligned) {
+                  if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                    return 'ΔB (contacted) vs pH';
+                  } else {
+                    return 'ΔB (pH-aligned) vs pH';
+                  }
+                }
+                return 'ΔB vs pH';
+              })(),
               xaxis: { title: 'pH' }, 
               yaxis: { title: 'ΔB (mol/L)' } 
             }}
@@ -502,7 +566,9 @@ function App() {
           <p style={{ fontSize: 13, marginTop: 4 }}>
             ΔB is the difference between measured and modelled base dosage – it highlights
             deviations due to neutralisation. {showPhAlignedDeltaB && settings.show_ph_aligned && 
-            'pH-aligned ΔB compares at the same pH rather than same base amount, reducing artifacts near vertical regions.'}
+            (settings.use_contact_point && result.model_data.delta_b_ph_contacted ? 
+              'Contact-point anchoring aligns the model to match the measured curve at the first point with pH ≥ contact_ph_min.' :
+              'pH-aligned ΔB compares at the same pH rather than same base amount, reducing artifacts near vertical regions.')}
           </p>
           <Plot
             style={{ width: '100%', height: 400 }}

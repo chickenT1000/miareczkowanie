@@ -231,6 +231,38 @@ async def compute_data(settings: ComputeSettings):
                 delta_b_ph_aligned.append(row["b_meas"] - b_at_ph)
 
         # Build model data (measured-aligned points + standalone curve)
+
+        # ------------------------------------------------------------------
+        # Contact-point anchoring (optional)
+        # ------------------------------------------------------------------
+        b_model_ph_contacted: Optional[List[Optional[float]]] = None
+        delta_b_ph_contacted: Optional[List[Optional[float]]] = None
+        if (
+            settings.c_a_known is None
+            and settings.use_contact_point
+            and b_model_ph_aligned
+        ):
+            # Find first index where pH ≥ contact_ph_min
+            i_contact = 0
+            for idx, row in enumerate(processed_rows):
+                if row["pH"] >= settings.contact_ph_min:
+                    i_contact = idx
+                    break
+
+            b_model_i = b_model_ph_aligned[i_contact]
+            if b_model_i is not None:
+                b_meas_i = processed_rows[i_contact]["b_meas"]
+                b_offset = b_meas_i - b_model_i
+
+                b_model_ph_contacted = [
+                    (x + b_offset) if x is not None else None
+                    for x in b_model_ph_aligned
+                ]
+                delta_b_ph_contacted = [
+                    (processed_rows[j]["b_meas"] - y) if y is not None else None
+                    for j, y in enumerate(b_model_ph_contacted)
+                ]
+
         model_data = ModelData(
             ph=[row["pH"] for row in processed_rows],
             b_model=[row["b_model"] for row in processed_rows],
@@ -238,6 +270,8 @@ async def compute_data(settings: ComputeSettings):
             b_model_curve=b_curve,
             b_model_ph_aligned=b_model_ph_aligned,
             delta_b_ph_aligned=delta_b_ph_aligned,
+            b_model_ph_contacted=b_model_ph_contacted,
+            delta_b_ph_contacted=delta_b_ph_contacted,
         )
         
         # Return compute response

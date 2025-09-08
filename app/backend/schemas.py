@@ -107,6 +107,22 @@ class ComputeSettings(BaseModel):
             "C_A (only applies if c_a_known is not provided)."
         ),
     )
+    # ---------------------- contact-point anchoring ---------------------- #
+    use_contact_point: bool = Field(
+        False,
+        description=(
+            "If true (and c_a_known is not provided) the model curve is "
+            "horizontally shifted so that it passes through the first "
+            "measurement whose pH ≥ contact_ph_min."
+        ),
+    )
+    contact_ph_min: float = Field(
+        1.0,
+        description=(
+            "Minimum pH used to pick the contact point.  The first data row "
+            "with pH ≥ this value is taken as the anchoring point."
+        ),
+    )
     column_mapping: ColumnMapping = Field(..., description="Column mapping")
     rows: List[Dict[str, Union[float, str]]] = Field(..., description="Data rows")
 
@@ -133,6 +149,15 @@ class ModelData(BaseModel):
     delta_b_ph_aligned: Optional[List[float]] = Field(
         None,
         description="Excess base ΔB computed with pH-aligned model values",
+    )
+    # --------------- contact-point–anchored subtraction ------------------ #
+    b_model_ph_contacted: Optional[List[float]] = Field(
+        None,
+        description="Model base values after horizontal shift at the contact point",
+    )
+    delta_b_ph_contacted: Optional[List[float]] = Field(
+        None,
+        description="Excess base using contact-point-anchored model values",
     )
 
 
