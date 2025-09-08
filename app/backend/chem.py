@@ -14,6 +14,7 @@ All concentrations are in mol/L unless otherwise specified.
 from typing import Dict, List, Optional, Tuple, Union, Sequence
 import numpy as np
 from scipy import stats
+from scipy import optimize
 
 # Import constants from models.py
 from models import K_A2, K_W
@@ -208,6 +209,104 @@ def convert_normalized_base_to_na(
         Sodium concentration in mol/L
     """
     return b_meas / (1 + b_meas / c_b)
+
+
+# --------------------------------------------------------------------------- #
+#  New helpers: standalone model curve generation                             #
+# --------------------------------------------------------------------------- #
+
+def solve_h(c_a_mix: float, na: float) -> float:
+    """
+    Solve for H⁺ given Na and diluted acid concentration using electroneutrality.
+
+    Equation:  g(h) = c_a_mix * f(h) + K_W / h - h - na = 0
+
+    Args:
+        c_a_mix: Diluted acid concentration (mol/L)
+        na: Sodium concentration (mol/L)
+
+    Returns:
+        H⁺ concentration (mol/L)
+
+    Raises:
+        ValueError if root not bracketed even after expanding search range.
+    """
+    def g(h: float) -> float:
+        f_h = compute_sulfate_fraction(h)
+        return c_a_mix * f_h + K_W / h - h - na
+
+    # Initial conservative bracket in acidic domain up to 1 M
+    lower, upper = 1e-14, 1.0
+
+    # If g(lower) and g(upper) have same sign, expand the bracket
+    if np.sign(g(lower)) == np.sign(g(upper)):
+        lower, upper = 1e-16, 10.0  # broaden search
+
+    if np.sign(g(lower)) == np.sign(g(upper)):
+        raise ValueError("Root not bracketed for h; check parameters.")
+
+    return optimize.brentq(g, lower, upper, maxiter=100, xtol=1e-14)
+
+
+def build_model_curve(
+    c_a: float,
+    c_b: float,
+    num_points: int = 200,
+    target_ph: float = 7.0,
+) -> Tuple[List[float], List[float]]:
+    """
+    Generate a standalone H₂SO₄ model curve (pH vs B) up to target pH.
+
+    Args:
+        c_a: Total sulfate concentration (mol/L)
+        c_b: Base concentration (mol/L)
+        num_points: Number of points for the curve
+        target_ph: Target pH to reach (default 7.0)
+
+    Returns:
+        Tuple (ph_list, b_list) with length up to `num_points`
+    """
+    # Adaptive upper bound for B
+    b_max = 2.5 * c_a
+    max_iterations = 8
+    
+    ph_list: List[float] = []
+    b_list: List[float] = []
+    
+    for iteration in range(max_iterations):
+        b_grid = np.linspace(0.0, b_max, num_points)
+        
+        # Clear previous results if retrying with higher b_max
+        if iteration > 0:
+            ph_list = []
+            b_list = []
+        
+        for b in b_grid:
+            try:
+                # Convert B to Na
+                na = convert_normalized_base_to_na(float(b), c_b)
+                
+                # Calculate diluted acid concentration
+                c_a_mix = c_a / (1 + b / c_b)
+                
+                # Solve for H+ and calculate pH
+                h = solve_h(c_a_mix, na)
+                ph_val = -np.log10(h)
+                
+                ph_list.append(ph_val)
+                b_list.append(float(b))
+                
+            except ValueError:
+                # Skip if solver fails (should be rare near bounds)
+                continue
+        
+        # Check if we reached target pH
+        if not ph_list or ph_list[-1] < target_ph:
+            b_max *= 2  # Double the upper bound and try again
+        else:
+            break  # We reached the target pH
+    
+    return ph_list, b_list
 
 
 def estimate_c_a(
@@ -448,12 +547,47 @@ def process_titration_data(
     # Estimate C_A from baseline
     c_a = estimate_c_a(baseline_ph, baseline_na, baseline_h, baseline_oh)
     
+    # ------------------------------------------------------------------ #
     # Reprocess with model using estimated C_A
+    # ------------------------------------------------------------------ #
     final_processed = []
     for ph, time in zip(ph_values, time_values):
         row = process_row(ph, time, c_b, q, v0, time_unit, c_a)
         final_processed.append(row)
     
+    # ------------------------------------------------------------------ #
+    # Build physically-constrained model in the Na domain
+    # ------------------------------------------------------------------ #
+    if final_processed:
+        # 1. Raw Na_model based on electroneutrality with dilution
+        na_model_raw = []
+        for row in final_processed:
+            # Calculate diluted acid concentration
+            c_a_mix = c_a * (v0 / (v0 + row["v_b"]))
+            f_h = compute_sulfate_fraction(row["h"])
+            na_m = compute_h2so4_model(row["h"], row["oh"], c_a_mix, f_h)
+            na_model_raw.append(na_m)
+
+        # 2. Anchor to measured Na at first point
+        na_offset = na_model_raw[0] - final_processed[0]["na"]
+        na_model_shifted = [na_m - na_offset for na_m in na_model_raw]
+
+        # 3. Clamp to physical bounds and enforce monotonicity
+        na_model_clamped: List[float] = []
+        prev_val = 0.0
+        upper_bound = 0.999 * c_b  # avoid division singularity
+        for na_m in na_model_shifted:
+            na_m = max(0.0, min(upper_bound, na_m))       # clamp
+            na_m = max(prev_val, na_m)                    # monotone non-decreasing
+            na_model_clamped.append(na_m)
+            prev_val = na_m
+
+        # 4. Convert back to B_model and update rows
+        for row, na_m in zip(final_processed, na_model_clamped):
+            b_model = convert_na_to_normalized_base(na_m, c_b)
+            row["b_model"] = b_model
+            row["delta_b"] = row["b_meas"] - b_model
+
     # Extract delta_b and pH for derivative calculation
     delta_b_values = [row["delta_b"] for row in final_processed]
     ph_for_deriv = [row["pH"] for row in final_processed]

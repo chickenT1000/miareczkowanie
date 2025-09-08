@@ -190,10 +190,21 @@ async def compute_data(settings: ComputeSettings):
             for peak in detected_peaks
         ]
         
-        # Build model data
+        # ------------------------------------------------------------------
+        # Build standalone H₂SO₄ model curve up to pH 7
+        # ------------------------------------------------------------------
+        try:
+            ph_curve, b_curve = chem.build_model_curve(c_a, settings.c_b)
+        except Exception:
+            # Fallback to empty curve if solver fails for exotic params
+            ph_curve, b_curve = [], []
+
+        # Build model data (measured-aligned points + standalone curve)
         model_data = ModelData(
             ph=[row["pH"] for row in processed_rows],
-            b_model=[row["b_model"] for row in processed_rows]
+            b_model=[row["b_model"] for row in processed_rows],
+            ph_model=ph_curve,
+            b_model_curve=b_curve,
         )
         
         # Return compute response
