@@ -615,6 +615,36 @@ function App() {
                   {assigningPeaks ? 'Assigning...' : 'Assign & Quantify'}
                 </button>
               </div>
+
+              {/* Totals summary for selected metals */}
+              {(() => {
+                const metalsToSum: Metal[] = ['Fe3+', 'Ni2+', 'Co2+']
+                const totals = metalsToSum.map((m) => {
+                  const rows = result.peaks.filter(
+                    (p) => p.metal === m && p.c_metal != null && p.mg_l != null,
+                  )
+                  return {
+                    metal: m,
+                    c: rows.reduce((acc, p) => acc + (p.c_metal || 0), 0),
+                    mg: rows.reduce((acc, p) => acc + (p.mg_l || 0), 0),
+                  }
+                })
+                const anyAssigned = totals.some((t) => t.c > 0)
+                if (!anyAssigned) return null
+                return (
+                  <div style={{ marginTop: 12, fontSize: 14 }}>
+                    <strong>Totals:</strong>
+                    <ul style={{ margin: '4px 0 0 16px' }}>
+                      {totals.map((t) => (
+                        <li key={t.metal}>
+                          {t.metal}: {t.c.toFixed(5)} mol/L &nbsp;|&nbsp;{' '}
+                          {t.mg.toFixed(2)} mg/L
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })()}
             </>
           )}
 
