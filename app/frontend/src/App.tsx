@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-import { getHealth, uploadCsv, compute, exportData } from './api/client'
+import { getHealth, uploadCsv, compute, exportData, assignPeaks } from './api/client'
 import type {
   ImportResponse,
   ColumnMapping,
   ComputeResponse,
   ComputeSettings,
+  Metal,
+  PeakAssignment,
 } from './api/client'
 
 // Plotly --------------------------------------------------------------------
@@ -39,6 +41,10 @@ function App() {
   const [computing, setComputing] = useState(false)
   const [result, setResult] = useState<ComputeResponse | null>(null)
   const [showPhAlignedDeltaB, setShowPhAlignedDeltaB] = useState(true)
+  // Peak assignment state
+  const [peakAssignments, setPeakAssignments] = useState<Record<number, Metal | ''>>({})
+  const [assigningPeaks, setAssigningPeaks] = useState(false)
+  
   // Preview arrays for pH-time plot
   const previewPh: number[] =
     importData && mapping
@@ -89,6 +95,13 @@ function App() {
       mounted = false
     }
   }, [])
+
+  // Reset peak assignments when result changes
+  useEffect(() => {
+    if (result) {
+      setPeakAssignments({})
+    }
+  }, [result])
 
   return (
     <main className="container" style={{ textAlign: 'left', maxWidth: 960, margin: '0 auto' }}>
@@ -513,6 +526,97 @@ function App() {
             The derivative dΔB/dpH accentuates step transitions corresponding to equivalence
             points.
           </p>
+
+          {/* -------------------------------------------------------------- */}
+          {/* Detected Peaks and Metal Assignment                           */}
+          {/* -------------------------------------------------------------- */}
+          {result.peaks.length > 0 && (
+            <>
+              <h3>Detected Peaks</h3>
+              <p style={{ fontSize: 13, marginTop: 4, marginBottom: 8 }}>
+                Assign metals to detected peaks to calculate concentrations.
+              </p>
+              <table border={1} cellPadding={4} style={{ borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr>
+                    <th>Peak ID</th>
+                    <th>pH Range</th>
+                    <th>ΔB Step</th>
+                    <th>Metal</th>
+                    <th>Stoichiometry</th>
+                    <th>Concentration (mol/L)</th>
+                    <th>Concentration (mg/L)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.peaks.map((peak) => (
+                    <tr key={peak.peak_id}>
+                      <td>{peak.peak_id}</td>
+                      <td>{peak.ph_start.toFixed(2)} - {peak.ph_end.toFixed(2)}</td>
+                      <td>{peak.delta_b_step.toFixed(5)}</td>
+                      <td>
+                        <select
+                          value={peakAssignments[peak.peak_id] || peak.metal || ''}
+                          onChange={(e) => {
+                            const value = e.target.value as Metal | '';
+                            setPeakAssignments({
+                              ...peakAssignments,
+                              [peak.peak_id]: value
+                            });
+                          }}
+                        >
+                          <option value="">-- Select Metal --</option>
+                          <option value="Fe3+">Fe³⁺</option>
+                          <option value="Ni2+">Ni²⁺</option>
+                          <option value="Co2+">Co²⁺</option>
+                          <option value="Fe2+">Fe²⁺</option>
+                          <option value="Al3+">Al³⁺</option>
+                          <option value="Mn2+">Mn²⁺</option>
+                        </select>
+                      </td>
+                      <td>{peak.stoichiometry || '-'}</td>
+                      <td>{peak.c_metal ? peak.c_metal.toFixed(5) : '-'}</td>
+                      <td>{peak.mg_l ? peak.mg_l.toFixed(2) : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12 }}>
+                <button
+                  disabled={assigningPeaks || Object.keys(peakAssignments).length === 0}
+                  onClick={async () => {
+                    // Filter out empty assignments
+                    const assignments: PeakAssignment[] = Object.entries(peakAssignments)
+                      .filter(([, metal]) => metal !== '')
+                      .map(([peakId, metal]) => ({
+                        peak_id: parseInt(peakId),
+                        metal: metal as Metal
+                      }));
+                    
+                    if (assignments.length === 0) return;
+                    
+                    setAssigningPeaks(true);
+                    try {
+                      const updatedPeaks = await assignPeaks(assignments);
+                      // Update result with new peaks
+                      setResult({
+                        ...result,
+                        peaks: updatedPeaks
+                      });
+                      // Clear assignments since they're now applied
+                      setPeakAssignments({});
+                    } catch (err) {
+                      alert(`Assignment failed: ${err}`);
+                    } finally {
+                      setAssigningPeaks(false);
+                    }
+                  }}
+                >
+                  {assigningPeaks ? 'Assigning...' : 'Assign & Quantify'}
+                </button>
+              </div>
+            </>
+          )}
 
           <h3>Processed Table (first 100 rows)</h3>
           <div style={{ overflowX: 'auto' }}>

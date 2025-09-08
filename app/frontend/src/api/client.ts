@@ -68,7 +68,11 @@ export interface Peak {
   ph_apex: number;
   ph_end: number;
   delta_b_step: number;
-  // optional assignment fields omitted for brevity
+  /* ---------- optional assignment / quantification fields --------------- */
+  metal?: Metal | null;
+  stoichiometry?: number | null;
+  c_metal?: number | null;
+  mg_l?: number | null;
 }
 
 export interface ComputeResponse {
@@ -76,6 +80,17 @@ export interface ComputeResponse {
   model_data: ModelData;
   peaks: Peak[];
   c_a: number;
+}
+
+/* ---------------------------------------------------------------------------
+ *  Peak-assignment helpers
+ * ------------------------------------------------------------------------- */
+
+export type Metal = 'Fe3+' | 'Fe2+' | 'Al3+' | 'Ni2+' | 'Co2+' | 'Mn2+';
+
+export interface PeakAssignment {
+  peak_id: number;
+  metal: Metal;
 }
 
 /**
@@ -173,3 +188,28 @@ export async function exportData(
 
   return res.json() as Promise<ExportResponse>;
 }
+
+/**
+ * Assign detected peaks to metals and receive updated peak list.
+ *
+ * @param assignments Array of { peak_id, metal } objects
+ * @returns           Updated array of Peak objects with concentration fields
+ */
+export async function assignPeaks(
+  assignments: PeakAssignment[],
+): Promise<Peak[]> {
+  const res = await fetch('/api/assign_peaks', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ assignments }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Assign peaks failed: ${await res.text()}`);
+  }
+
+  return res.json() as Promise<Peak[]>;
+}
+

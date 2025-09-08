@@ -185,3 +185,22 @@ class SessionData(BaseModel):
     peaks: Optional[List[Peak]] = Field(None, description="Detected peaks")
     c_a: Optional[float] = Field(None, description="Estimated sulfate concentration")
     version: str = Field("0.1.0", description="Session data format version")
+
+# --------------------------------------------------------------------------- #
+#  New models for peak → metal assignment                                     #
+# --------------------------------------------------------------------------- #
+
+
+class PeakAssignment(BaseModel):
+    """Single peak-to-metal assignment coming from the UI."""
+
+    peak_id: int = Field(..., description="ID of the peak to assign")
+    metal: Metal = Field(..., description="Selected metal for this peak")
+
+
+class AssignPeaksRequest(BaseModel):
+    """Request payload for /api/assign_peaks endpoint."""
+
+    assignments: List[PeakAssignment] = Field(
+        ..., description="List of peak→metal assignments"
+    )

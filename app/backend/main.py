@@ -22,11 +22,14 @@ from schemas import (
     ExportFormat,
     DataType,
     SessionData,
+    AssignPeaksRequest,
+    PeakAssignment,
     Metal,
 )
 from io_csv import parse_csv_file
 import chem
 import peaks
+from models import METALS_DATA
 
 # Environment configuration
 APP_ENV = os.getenv("APP_ENV", "dev")
@@ -343,6 +346,52 @@ async def export_data(request: ExportRequest):
         "content_type": content_type,
         "data": data_payload,
     }
+
+# --------------------------------------------------------------------------- #
+#  Peak → metal assignment endpoint                                          #
+# --------------------------------------------------------------------------- #
+
+
+@app.post("/api/assign_peaks", response_model=List[Peak])
+async def assign_peaks(request: AssignPeaksRequest):
+    """
+    Assign detected peaks to specific metals and quantify concentrations.
+
+    For each assignment:
+      c_metal = ΔB_step / stoichiometry
+      mg/L    = c_metal · molar_mass · 1000
+    """
+
+    # Ensure we have peaks from a previous compute
+    if app.state.last_peaks is None:
+        raise HTTPException(status_code=400, detail="No peaks available. Run /api/compute first.")
+
+    # Build quick lookup from peak_id to desired metal
+    assignment_map = {a.peak_id: a.metal for a in request.assignments}
+
+    # Update peaks in place
+    updated_peaks: List[Peak] = []
+    for peak in app.state.last_peaks:
+        if peak.peak_id in assignment_map:
+            metal_enum = assignment_map[peak.peak_id]
+            metal_data = METALS_DATA.get(metal_enum)
+            if metal_data is None:
+                raise HTTPException(status_code=400, detail=f"Unknown metal {metal_enum}")
+
+            stoich = metal_data.stoichiometry
+            c_metal = peak.delta_b_step / stoich if stoich else None
+            mg_l = c_metal * metal_data.molar_mass * 1000.0 if c_metal is not None else None
+
+            peak.metal = metal_enum
+            peak.stoichiometry = stoich
+            peak.c_metal = c_metal
+            peak.mg_l = mg_l
+        updated_peaks.append(peak)
+
+    # Persist
+    app.state.last_peaks = updated_peaks
+
+    return updated_peaks
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
