@@ -157,7 +157,9 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
     text = content.decode('utf-8', errors='ignore')
     
     # Create CSV reader
-    f = io.StringIO(text)
+    # newline='' prevents csv module from interpreting embedded '\r' or '\n'
+    # inside quoted fields as record terminators (see Python csv docs).
+    f = io.StringIO(text, newline='')
     reader = csv.reader(f, delimiter=column_sep)
     
     # Find data section
@@ -234,7 +236,9 @@ def parse_uploaded_csv(content: bytes) -> Dict[str, Any]:
         rows.append(normalized_row)
     
     # Prepare column mapping for frontend
-    frontend_columns = ["time_label", "module", "pH", "temperature"]
+    # Put the numeric “time” first so the frontend auto-selects it,
+    # followed by the main numeric columns, then the textual label/module.
+    frontend_columns = ["time", "pH", "temperature", "time_label", "module"]
     
     return {
         "columns": frontend_columns,
@@ -268,7 +272,8 @@ def parse_generic_csv(content: bytes) -> Dict[str, Any]:
     text = content.decode('utf-8', errors='ignore')
     
     # Create CSV reader
-    f = io.StringIO(text)
+    # Use newline='' for robust handling of CR/LF inside quoted fields
+    f = io.StringIO(text, newline='')
     reader = csv.reader(f, delimiter=column_sep)
     
     # Try to read header row
