@@ -448,12 +448,29 @@ def process_titration_data(
     # Estimate C_A from baseline
     c_a = estimate_c_a(baseline_ph, baseline_na, baseline_h, baseline_oh)
     
+    # ------------------------------------------------------------------ #
     # Reprocess with model using estimated C_A
+    # ------------------------------------------------------------------ #
     final_processed = []
     for ph, time in zip(ph_values, time_values):
         row = process_row(ph, time, c_b, q, v0, time_unit, c_a)
         final_processed.append(row)
     
+    # ------------------------------------------------------------------ #
+    # Anchor model to start point so that the model curve shares the same
+    # origin (base amount) as the measured data.  This prevents a global
+    # offset that shows up as negative base at the beginning of the curve.
+    # ------------------------------------------------------------------ #
+    if final_processed:
+        offset = final_processed[0]["b_model"] - final_processed[0]["b_meas"]
+
+        # Only apply if the offset is non-zero (tolerate tiny numerical noise)
+        if abs(offset) > 1e-12:
+            for row in final_processed:
+                row["b_model"] -= offset
+                # Re-compute ΔB with the shifted model
+                row["delta_b"] = row["b_meas"] - row["b_model"]
+
     # Extract delta_b and pH for derivative calculation
     delta_b_values = [row["delta_b"] for row in final_processed]
     ph_for_deriv = [row["pH"] for row in final_processed]
