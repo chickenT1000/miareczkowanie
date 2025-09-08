@@ -171,8 +171,8 @@ function App() {
         {importData && (
           <p style={{ marginTop: 8, fontSize: 14 }}>
             Columns&nbsp;detected: {importData.columns.join(', ')} · rows:{' '}
-            {importData.rows.length} · separator: “{importData.column_separator}” · decimal “
-            {importData.decimal_separator}” · time unit: {importData.time_unit}
+            {importData.rows.length} · separator: "{importData.column_separator}" · decimal "
+            {importData.decimal_separator}" · time unit: {importData.time_unit}
           </p>
         )}
       </section>
@@ -326,36 +326,43 @@ function App() {
           <p style={{ fontSize: 16, fontWeight: 500 }}>
             Estimated C<sub>A</sub>: {result.c_a.toFixed(4)} mol/L
           </p>
-          <h3>B<sub>meas</sub> &amp; B<sub>model</sub> vs pH</h3>
+          <h3>Measured vs Model Base</h3>
           <Plot
             style={{ width: '100%', height: 400 }}
             data={[
               {
-                x: result.processed_table.map((r) => r.ph),
-                y: result.processed_table.map((r) => r.b_meas),
+                x: result.processed_table.map((r) => r.b_meas),
+                y: result.processed_table.map((r) => r.ph),
                 type: 'scatter',
                 mode: 'lines',
-                name: 'B_meas',
+                name: 'Measured (B_meas)',
               },
               {
-                x: result.model_data.ph,
-                y: result.model_data.b_model,
+                x: (() => {
+                  // Mask extreme model values
+                  const maxBMeas = Math.max(...result.processed_table.map(r => r.b_meas));
+                  const threshold = 5 * maxBMeas;
+                  return result.model_data.b_model.map(v => 
+                    (Math.abs(v) > threshold) ? null : v
+                  );
+                })(),
+                y: result.model_data.ph,
                 type: 'scatter',
                 mode: 'lines',
-                name: 'B_model',
+                name: 'Model (B_model)',
                 line: { dash: 'dash' },
               },
             ]}
             layout={{
-              title: 'Measured vs model base',
-              xaxis: { title: 'pH' },
-              yaxis: { title: 'B (mol/L)' },
+              title: 'Titration Curve: pH vs Base Amount',
+              xaxis: { title: 'Base amount (mol/L)' },
+              yaxis: { title: 'pH' },
             }}
             useResizeHandler
           />
           <p style={{ fontSize: 13, marginTop: 4 }}>
-            Comparison of measured normalised base (B<sub>meas</sub>) with the theoretical
-            H₂SO₄-only model (B<sub>model</sub>).
+            Titration curve showing pH vs normalized base amount. The measured data (solid line) is compared with 
+            the theoretical H₂SO₄-only model (dashed line). Extreme model values are masked for better visualization.
           </p>
           <h3>Plots</h3>
           <Plot
