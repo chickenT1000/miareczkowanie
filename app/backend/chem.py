@@ -457,19 +457,35 @@ def process_titration_data(
         final_processed.append(row)
     
     # ------------------------------------------------------------------ #
-    # Anchor model to start point so that the model curve shares the same
-    # origin (base amount) as the measured data.  This prevents a global
-    # offset that shows up as negative base at the beginning of the curve.
+    # Build physically-constrained model in the Na domain
     # ------------------------------------------------------------------ #
     if final_processed:
-        offset = final_processed[0]["b_model"] - final_processed[0]["b_meas"]
+        # 1. Raw Na_model based on electroneutrality
+        na_model_raw = []
+        for row in final_processed:
+            f_h = compute_sulfate_fraction(row["h"])
+            na_m = compute_h2so4_model(row["h"], row["oh"], c_a, f_h)
+            na_model_raw.append(na_m)
 
-        # Only apply if the offset is non-zero (tolerate tiny numerical noise)
-        if abs(offset) > 1e-12:
-            for row in final_processed:
-                row["b_model"] -= offset
-                # Re-compute ΔB with the shifted model
-                row["delta_b"] = row["b_meas"] - row["b_model"]
+        # 2. Anchor to measured Na at first point
+        na_offset = na_model_raw[0] - final_processed[0]["na"]
+        na_model_shifted = [na_m - na_offset for na_m in na_model_raw]
+
+        # 3. Clamp to physical bounds and enforce monotonicity
+        na_model_clamped: List[float] = []
+        prev_val = 0.0
+        upper_bound = 0.999 * c_b  # avoid division singularity
+        for na_m in na_model_shifted:
+            na_m = max(0.0, min(upper_bound, na_m))       # clamp
+            na_m = max(prev_val, na_m)                    # monotone non-decreasing
+            na_model_clamped.append(na_m)
+            prev_val = na_m
+
+        # 4. Convert back to B_model and update rows
+        for row, na_m in zip(final_processed, na_model_clamped):
+            b_model = convert_na_to_normalized_base(na_m, c_b)
+            row["b_model"] = b_model
+            row["delta_b"] = row["b_meas"] - b_model
 
     # Extract delta_b and pH for derivative calculation
     delta_b_values = [row["delta_b"] for row in final_processed]
