@@ -118,3 +118,46 @@ export async function compute(
 
   return res.json() as Promise<ComputeResponse>;
 }
+
+/* ---------------------------------------------------------------------------
+ *  Export helpers
+ * ------------------------------------------------------------------------- */
+
+export interface ExportResponse {
+  filename: string;
+  content_type: string;
+  // The backend returns either a CSV string or a JSON-serialisable object.
+  data: any;
+}
+
+/**
+ * Export data (processed table, peaks, or full session) from the backend.
+ *
+ * @param format    'csv' or 'json'
+ * @param dataType  'processed' | 'peaks' | 'session'
+ * @returns         Object containing filename suggestion, MIME type and payload
+ */
+export async function exportData(
+  format: 'csv' | 'json',
+  dataType: 'processed' | 'peaks' | 'session',
+): Promise<ExportResponse> {
+  const body = {
+    format,
+    data_type: dataType,
+    include_plots: false,
+  };
+
+  const res = await fetch('/api/export', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Export failed: ${await res.text()}`);
+  }
+
+  return res.json() as Promise<ExportResponse>;
+}
