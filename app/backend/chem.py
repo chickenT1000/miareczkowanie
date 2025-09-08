@@ -2,7 +2,7 @@
 Chemistry calculations for titration analysis.
 
 This module implements the core chemistry model for acid-base titrations:
-1. H+ and OH- concentrations from pH
+1. H⁺ and OH⁻ from pH
 2. Sulfate speciation fraction f(H)
 3. Base volume and moles from time
 4. Dilution corrections
@@ -607,10 +607,17 @@ def process_titration_data(
             # Default to first 20% of data points if not specified
             baseline_end_index = max(3, int(len(initial_processed) * 0.2))
 
-        # Optionally filter baseline rows below pH threshold
-        baseline_rows = initial_processed[:baseline_end_index]
+        # Build baseline rows taking pH-threshold into account so result is
+        # never empty.  Prefer earliest rows that satisfy the threshold;
+        # fall back to earliest rows overall if too few are eligible.
         if ph_ignore_below is not None:
-            baseline_rows = [r for r in baseline_rows if r["pH"] >= ph_ignore_below]
+            eligible = [r for r in initial_processed if r["pH"] >= ph_ignore_below]
+            if len(eligible) >= 3:
+                baseline_rows = eligible[:baseline_end_index]
+            else:
+                baseline_rows = initial_processed[:baseline_end_index]
+        else:
+            baseline_rows = initial_processed[:baseline_end_index]
 
         # Extract values for C_A estimation
         baseline_ph = [row["pH"] for row in baseline_rows]
