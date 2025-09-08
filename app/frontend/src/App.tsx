@@ -68,10 +68,48 @@ function App() {
       <h1>Miareczkowanie</h1>
 
       {/* ------------------------------------------------------------------ */}
+      {/* Info / Method description */}
+      {/* ------------------------------------------------------------------ */}
+      <section
+        style={{
+          background: '#eef7ff',
+          padding: '0.75rem 1rem',
+          border: '1px solid #c9e2ff',
+          marginBottom: '1rem',
+          fontSize: 14,
+        }}
+      >
+        <strong>What is calculated?</strong>
+        <ul style={{ marginTop: 4, marginBottom: 4 }}>
+          <li>H⁺ from pH, then OH⁻ via K<sub>w</sub></li>
+          <li>Sulfate charge fraction&nbsp;f(H) = (H + 2·K<sub>a2</sub>)/(H + K<sub>a2</sub>)</li>
+          <li>Delivered base → Na⁺ with dilution → B<sub>meas</sub></li>
+          <li>Electroneutrality model gives B<sub>model</sub>; ΔB = B<sub>meas</sub> − B<sub>model</sub></li>
+          <li>Cumulative derivative dΔB/dpH shows equivalence-point steps</li>
+          <li>C<sub>A</sub> (total sulfate) is estimated from the initial baseline window</li>
+        </ul>
+        <details>
+          <summary style={{ cursor: 'pointer' }}>Full description&nbsp;(click to expand)</summary>
+          <p style={{ marginTop: 6 }}>
+            A flowing titration with NaOH is modelled assuming only&nbsp;H₂SO₄ in the sample.
+            Sodium added by the pump is corrected for dilution. Using electroneutrality,
+            Na<sub>model</sub> = C<sub>A</sub>·f(H) + OH⁻ − H⁺. This is converted back to the
+            normalised base axis B<sub>model</sub>. The difference ΔB highlights neutralisation
+            events; its derivative pinpoints step transitions whose heights correspond to
+            sulfate fractions. A robust median of baseline points estimates C<sub>A</sub>.
+          </p>
+        </details>
+      </section>
+
+      {/* ------------------------------------------------------------------ */}
       {/* Upload CSV */}
       {/* ------------------------------------------------------------------ */}
       <section>
         <h2>1. Upload CSV</h2>
+        <p style={{ fontSize: 14 }}>
+          Supported: instrument export or any CSV with pH and time columns. Decimal&nbsp;comma and
+          semicolon separators are detected automatically.
+        </p>
         <input
           type="file"
           accept=".csv,.txt"
@@ -100,8 +138,10 @@ function App() {
           }}
         />
         {importData && (
-          <p style={{ marginTop: 8 }}>
-            Columns detected: {importData.columns.join(', ')} ({importData.rows.length} rows)
+          <p style={{ marginTop: 8, fontSize: 14 }}>
+            Columns&nbsp;detected: {importData.columns.join(', ')} · rows:{' '}
+            {importData.rows.length} · separator: “{importData.column_separator}” · decimal “
+            {importData.decimal_separator}” · time unit: {importData.time_unit}
           </p>
         )}
       </section>
@@ -112,6 +152,10 @@ function App() {
       {importData && mapping && (
         <section>
           <h2>2. Map Columns</h2>
+          <p style={{ fontSize: 14, marginTop: 0 }}>
+            Choose numeric pH and time columns (prefer &ldquo;time&rdquo; over
+            &ldquo;time_label&rdquo;).
+          </p>
           <label>
             pH column:&nbsp;
             <select
@@ -144,18 +188,49 @@ function App() {
       {importData && mapping && (
         <section>
           <h2>3. Settings</h2>
-          {(['c_b', 'q', 'v0', 'ph_cutoff'] as const).map((k) => (
-            <label key={k} style={{ marginRight: 12 }}>
-              {k}:{' '}
-              <input
-                type="number"
-                step="any"
-                value={settings[k]}
-                onChange={(e) => setSettings({ ...settings, [k]: parseFloat(e.target.value) })}
-                style={{ width: 80 }}
-              />
-            </label>
-          ))}
+          <p style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>
+            Configure pump / solution parameters (used in model calculations).
+          </p>
+          <label style={{ marginRight: 12 }}>
+            C<sub>b</sub> (NaOH conc., mol/L):{' '}
+            <input
+              type="number"
+              step="any"
+              value={settings.c_b}
+              onChange={(e) => setSettings({ ...settings, c_b: parseFloat(e.target.value) })}
+              style={{ width: 80 }}
+            />
+          </label>
+          <label style={{ marginRight: 12 }}>
+            q (pump flow, mL/min):{' '}
+            <input
+              type="number"
+              step="any"
+              value={settings.q}
+              onChange={(e) => setSettings({ ...settings, q: parseFloat(e.target.value) })}
+              style={{ width: 80 }}
+            />
+          </label>
+          <label style={{ marginRight: 12 }}>
+            V<sub>0</sub> (initial volume, mL):{' '}
+            <input
+              type="number"
+              step="any"
+              value={settings.v0}
+              onChange={(e) => setSettings({ ...settings, v0: parseFloat(e.target.value) })}
+              style={{ width: 80 }}
+            />
+          </label>
+          <label style={{ marginRight: 12 }}>
+            pH cutoff (peak detection):{' '}
+            <input
+              type="number"
+              step="any"
+              value={settings.ph_cutoff}
+              onChange={(e) => setSettings({ ...settings, ph_cutoff: parseFloat(e.target.value) })}
+              style={{ width: 80 }}
+            />
+          </label>
           <div style={{ marginTop: 12 }}>
             <button
               disabled={computing}
@@ -178,7 +253,7 @@ function App() {
                 }
               }}
             >
-              {computing ? 'Computing…' : 'Run Compute'}
+              {computing ? 'Computing…' : 'Compute results'}
             </button>
           </div>
         </section>
@@ -190,6 +265,9 @@ function App() {
       {result && (
         <section>
           <h2>4. Results</h2>
+          <p style={{ fontSize: 16, fontWeight: 500 }}>
+            Estimated C<sub>A</sub>: {result.c_a.toFixed(4)} mol/L
+          </p>
           <h3>Plots</h3>
           <Plot
             style={{ width: '100%', height: 400 }}
@@ -205,6 +283,10 @@ function App() {
             layout={{ title: 'ΔB vs pH', xaxis: { title: 'pH' }, yaxis: { title: 'ΔB (mol/L)' } }}
             useResizeHandler
           />
+          <p style={{ fontSize: 13, marginTop: 4 }}>
+            ΔB is the difference between measured and modelled base dosage – it highlights
+            deviations due to neutralisation.
+          </p>
           <Plot
             style={{ width: '100%', height: 400 }}
             data={[
@@ -223,6 +305,10 @@ function App() {
             }}
             useResizeHandler
           />
+          <p style={{ fontSize: 13, marginTop: 4 }}>
+            The derivative dΔB/dpH accentuates step transitions corresponding to equivalence
+            points.
+          </p>
 
           <h3>Processed Table (first 100 rows)</h3>
           <div style={{ overflowX: 'auto' }}>
