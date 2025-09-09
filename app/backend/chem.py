@@ -2,7 +2,7 @@
 Chemistry calculations for titration analysis.
 
 This module implements the core chemistry model for acid-base titrations:
-1. H+ and OH- concentrations from pH
+1. H⁺ and OH⁻ from pH
 2. Sulfate speciation fraction f(H)
 3. Base volume and moles from time
 4. Dilution corrections
@@ -246,6 +246,68 @@ def solve_h(c_a_mix: float, na: float) -> float:
         raise ValueError("Root not bracketed for h; check parameters.")
 
     return optimize.brentq(g, lower, upper, maxiter=100, xtol=1e-14)
+
+
+# --------------------------------------------------------------------------- #
+#  Inversion helpers (pH-registered subtraction)                              #
+# --------------------------------------------------------------------------- #
+
+def ph_of_b(c_a: float, c_b: float, b: float) -> float:
+    """
+    Compute model pH for a given normalized base amount B.
+
+    Args:
+        c_a: Total sulfate concentration (mol/L).
+        c_b: Base concentration (mol/L).
+        b:   Normalised base amount (mol/L, referenced to V₀).
+
+    Returns
+        Model pH (float).
+    """
+    # Sodium coming from delivered base at this B
+    na = convert_normalized_base_to_na(b, c_b)
+    # Diluted acid concentration at this B
+    c_a_mix = c_a / (1 + b / c_b)
+    # Solve electroneutrality
+    h = solve_h(c_a_mix, na)
+    return -np.log10(h)
+
+
+def find_b_for_ph(
+    c_a: float,
+    c_b: float,
+    ph_target: float,
+    b_hint: Optional[float] = None,
+) -> float:
+    """
+    Find the model base amount B that gives the requested pH.
+
+    Uses monotone root-finding in B.  Returns np.nan if no bracket could be
+    found (e.g. pH outside modelable range).
+    """
+
+    def f(b: float) -> float:
+        return ph_of_b(c_a, c_b, b) - ph_target
+
+    # If target already reached at B = 0 (very acidic), return 0 directly
+    if f(0.0) >= 0.0:
+        return 0.0
+
+    # Initial upper bracket
+    b_max = max(b_hint or 2.5 * c_a, 1e-9)
+    max_iter = 8
+    for _ in range(max_iter):
+        try:
+            if f(b_max) >= 0.0:
+                # Root is bracketed in (0, b_max)
+                return optimize.brentq(f, 0.0, b_max, maxiter=100, xtol=1e-12)
+        except ValueError:
+            # f may fail deep in acidic region; ignore
+            pass
+        b_max *= 2.0  # expand search window
+
+    # If we get here, we failed to bracket the root
+    return float("nan")
 
 
 def build_model_curve(
@@ -502,7 +564,10 @@ def process_titration_data(
     v0: float = 100.0,
     time_unit: str = "s",
     start_index: int = 0,
-    baseline_end_index: Optional[int] = None
+    baseline_end_index: Optional[int] = None,
+    *,
+    c_a_override: Optional[float] = None,
+    ph_ignore_below: Optional[float] = None,
 ) -> Tuple[List[Dict[str, float]], float]:
     """
     Process complete titration dataset.
@@ -533,19 +598,35 @@ def process_titration_data(
         row = process_row(ph, time, c_b, q, v0, time_unit)
         initial_processed.append(row)
     
-    # Determine baseline window for C_A estimation
-    if baseline_end_index is None:
-        # Default to first 20% of data points if not specified
-        baseline_end_index = max(3, int(len(initial_processed) * 0.2))
-    
-    # Extract values for C_A estimation
-    baseline_ph = [row["pH"] for row in initial_processed[:baseline_end_index]]
-    baseline_na = [row["na"] for row in initial_processed[:baseline_end_index]]
-    baseline_h = [row["h"] for row in initial_processed[:baseline_end_index]]
-    baseline_oh = [row["oh"] for row in initial_processed[:baseline_end_index]]
-    
-    # Estimate C_A from baseline
-    c_a = estimate_c_a(baseline_ph, baseline_na, baseline_h, baseline_oh)
+    # If user supplies override, respect it and skip estimation
+    if c_a_override is not None:
+        c_a = c_a_override
+    else:
+        # Determine baseline window for C_A estimation
+        if baseline_end_index is None:
+            # Default to first 20% of data points if not specified
+            baseline_end_index = max(3, int(len(initial_processed) * 0.2))
+
+        # Build baseline rows taking pH-threshold into account so result is
+        # never empty.  Prefer earliest rows that satisfy the threshold;
+        # fall back to earliest rows overall if too few are eligible.
+        if ph_ignore_below is not None:
+            eligible = [r for r in initial_processed if r["pH"] >= ph_ignore_below]
+            if len(eligible) >= 3:
+                baseline_rows = eligible[:baseline_end_index]
+            else:
+                baseline_rows = initial_processed[:baseline_end_index]
+        else:
+            baseline_rows = initial_processed[:baseline_end_index]
+
+        # Extract values for C_A estimation
+        baseline_ph = [row["pH"] for row in baseline_rows]
+        baseline_na = [row["na"] for row in baseline_rows]
+        baseline_h = [row["h"] for row in baseline_rows]
+        baseline_oh = [row["oh"] for row in baseline_rows]
+
+        # Estimate C_A from baseline
+        c_a = estimate_c_a(baseline_ph, baseline_na, baseline_h, baseline_oh)
     
     # ------------------------------------------------------------------ #
     # Reprocess with model using estimated C_A

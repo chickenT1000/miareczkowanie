@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-import { getHealth, uploadCsv, compute, exportData } from './api/client'
+import { getHealth, uploadCsv, compute, exportData, assignPeaks } from './api/client'
 import type {
   ImportResponse,
   ColumnMapping,
   ComputeResponse,
   ComputeSettings,
+  Metal,
+  PeakAssignment,
 } from './api/client'
 
 // Plotly --------------------------------------------------------------------
@@ -31,9 +33,20 @@ function App() {
     v0: 100,
     t: 25,
     ph_cutoff: 6.5,
+    c_a_known: 0.2,
+    use_c_a_known: false,
+    ph_ignore_below: 1.0,
+    show_ph_aligned: false,
+    use_contact_point: true,
+    contact_ph_min: 1.0,
   })
   const [computing, setComputing] = useState(false)
   const [result, setResult] = useState<ComputeResponse | null>(null)
+  const [showPhAlignedDeltaB, setShowPhAlignedDeltaB] = useState(true)
+  // Peak assignment state
+  const [peakAssignments, setPeakAssignments] = useState<Record<number, Metal | ''>>({})
+  const [assigningPeaks, setAssigningPeaks] = useState(false)
+  
   // Preview arrays for pH-time plot
   const previewPh: number[] =
     importData && mapping
@@ -84,6 +97,13 @@ function App() {
       mounted = false
     }
   }, [])
+
+  // Reset peak assignments when result changes
+  useEffect(() => {
+    if (result) {
+      setPeakAssignments({})
+    }
+  }, [result])
 
   return (
     <main className="container" style={{ textAlign: 'left', maxWidth: 960, margin: '0 auto' }}>
@@ -201,6 +221,18 @@ function App() {
           &nbsp;&nbsp;
           <label>
             Time column:&nbsp;
+            <select
+              value={mapping.time}
+              onChange={(e) => setMapping({ ...mapping, time: e.target.value })}
+            >
+              {importData.columns.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+        </section>
+      )}
+
       {/* ------------------------------------------------------------------ */}
       {/* Preview plot pH vs time                                            */}
       {/* ------------------------------------------------------------------ */}
@@ -225,18 +257,6 @@ function App() {
             }}
             useResizeHandler
           />
-        </section>
-      )}
-
-            <select
-              value={mapping.time}
-              onChange={(e) => setMapping({ ...mapping, time: e.target.value })}
-            >
-              {importData.columns.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </label>
         </section>
       )}
 
@@ -289,6 +309,78 @@ function App() {
               style={{ width: 80 }}
             />
           </label>
+          
+          <div style={{ marginTop: 12 }}>
+            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={settings.use_c_a_known}
+                onChange={(e) => setSettings({ ...settings, use_c_a_known: e.target.checked })}
+                style={{ marginRight: 4 }}
+              />
+              Use known C<sub>A</sub> (mol/L):{' '}
+            </label>
+            <input
+              type="number"
+              step="any"
+              value={settings.c_a_known}
+              onChange={(e) => setSettings({ ...settings, c_a_known: parseFloat(e.target.value) })}
+              style={{ width: 80, marginRight: 12 }}
+              disabled={!settings.use_c_a_known}
+            />
+            
+            <label style={{ marginRight: 12 }}>
+              Ignore pH below (for baseline C<sub>A</sub> estimation):{' '}
+              <input
+                type="number"
+                step="any"
+                value={settings.ph_ignore_below}
+                onChange={(e) => {
+                  const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                  setSettings({ ...settings, ph_ignore_below: val as any });
+                }}
+                style={{ width: 80 }}
+                placeholder="Optional"
+              />
+            </label>
+          </div>
+          
+          <div style={{ marginTop: 12 }}>
+            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={settings.use_contact_point}
+                onChange={(e) => setSettings({ ...settings, use_contact_point: e.target.checked })}
+                style={{ marginRight: 4 }}
+                disabled={settings.use_c_a_known}
+              />
+              Use contact point (when C<sub>A</sub> unknown)
+            </label>
+            <label style={{ marginRight: 12 }}>
+              Contact pH min:{' '}
+              <input
+                type="number"
+                step="any"
+                value={settings.contact_ph_min}
+                onChange={(e) => setSettings({ ...settings, contact_ph_min: parseFloat(e.target.value) })}
+                style={{ width: 80 }}
+                disabled={settings.use_c_a_known || !settings.use_contact_point}
+              />
+            </label>
+          </div>
+          
+          <div style={{ marginTop: 12 }}>
+            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={settings.show_ph_aligned}
+                onChange={(e) => setSettings({ ...settings, show_ph_aligned: e.target.checked })}
+                style={{ marginRight: 4 }}
+              />
+              Show pH-aligned model overlay
+            </label>
+          </div>
+          
           <div style={{ marginTop: 12 }}>
             <button
               disabled={computing}
@@ -298,6 +390,10 @@ function App() {
                 try {
                   const payload: ComputeSettings = {
                     ...settings,
+                    c_a_known: settings.use_c_a_known ? settings.c_a_known : null,
+                    ph_ignore_below: settings.ph_ignore_below || null,
+                    use_contact_point: settings.use_contact_point,
+                    contact_ph_min: settings.contact_ph_min,
                     start_index: 0,
                     column_mapping: mapping,
                     rows: importData.rows,
@@ -324,7 +420,7 @@ function App() {
         <section>
           <h2>4. Results</h2>
           <p style={{ fontSize: 16, fontWeight: 500 }}>
-            Estimated C<sub>A</sub>: {result.c_a.toFixed(4)} mol/L
+            {settings.use_c_a_known ? 'Using known' : 'Estimated'} C<sub>A</sub>: {result.c_a.toFixed(4)} mol/L
           </p>
           <h3>Measured vs Model Base</h3>
           <Plot
@@ -373,6 +469,27 @@ function App() {
                   line: { dash: 'dash' },
                 }
               })(),
+              ...(settings.show_ph_aligned && result.model_data.b_model_ph_aligned ? [
+                {
+                  x: result.model_data.b_model_ph_aligned.filter((v): v is number => v !== null),
+                  y: result.model_data.ph.filter((_, i) => result.model_data.b_model_ph_aligned?.[i] !== null),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Model (pH-aligned)',
+                  line: { dash: 'dashdot', color: 'rgba(255, 100, 50, 0.8)' },
+                }
+              ] : []),
+              ...(settings.show_ph_aligned && settings.use_contact_point && 
+                  result.model_data.b_model_ph_contacted ? [
+                {
+                  x: result.model_data.b_model_ph_contacted.filter((v): v is number => v !== null),
+                  y: result.model_data.ph.filter((_, i) => result.model_data.b_model_ph_contacted?.[i] !== null),
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Model (contacted)',
+                  line: { dash: 'dot', color: 'rgba(50, 150, 255, 0.8)' },
+                }
+              ] : []),
             ]}
             layout={{
               title: 'Titration Curve: pH vs Base Amount',
@@ -386,23 +503,72 @@ function App() {
             the theoretical H₂SO₄-only model (dashed line). Extreme model values are masked for better visualization.
           </p>
           <h3>Plots</h3>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ marginRight: 12 }}>ΔB vs pH</span>
+            {result.model_data.delta_b_ph_aligned && (
+              <label style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={showPhAlignedDeltaB && settings.show_ph_aligned}
+                  onChange={(e) => setShowPhAlignedDeltaB(e.target.checked)}
+                  disabled={!settings.show_ph_aligned}
+                  style={{ marginRight: 4 }}
+                />
+                Use pH-aligned ΔB
+              </label>
+            )}
+          </div>
           <Plot
             style={{ width: '100%', height: 400 }}
             data={[
               {
                 x: result.processed_table.map((r) => r.ph),
-                y: result.processed_table.map((r) => r.delta_b),
+                y: (() => {
+                  if (showPhAlignedDeltaB && settings.show_ph_aligned) {
+                    if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                      return result.model_data.delta_b_ph_contacted.filter((v): v is number => v !== null);
+                    } else if (result.model_data.delta_b_ph_aligned) {
+                      return result.model_data.delta_b_ph_aligned.filter((v): v is number => v !== null);
+                    }
+                  }
+                  return result.processed_table.map((r) => r.delta_b);
+                })(),
                 type: 'scatter',
                 mode: 'lines',
-                name: 'ΔB',
+                name: (() => {
+                  if (showPhAlignedDeltaB && settings.show_ph_aligned) {
+                    if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                      return 'ΔB (contacted)';
+                    } else {
+                      return 'ΔB (pH-aligned)';
+                    }
+                  }
+                  return 'ΔB';
+                })(),
               },
             ]}
-            layout={{ title: 'ΔB vs pH', xaxis: { title: 'pH' }, yaxis: { title: 'ΔB (mol/L)' } }}
+            layout={{ 
+              title: (() => {
+                if (showPhAlignedDeltaB && settings.show_ph_aligned) {
+                  if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                    return 'ΔB (contacted) vs pH';
+                  } else {
+                    return 'ΔB (pH-aligned) vs pH';
+                  }
+                }
+                return 'ΔB vs pH';
+              })(),
+              xaxis: { title: 'pH' }, 
+              yaxis: { title: 'ΔB (mol/L)' } 
+            }}
             useResizeHandler
           />
           <p style={{ fontSize: 13, marginTop: 4 }}>
             ΔB is the difference between measured and modelled base dosage – it highlights
-            deviations due to neutralisation.
+            deviations due to neutralisation. {showPhAlignedDeltaB && settings.show_ph_aligned && 
+            (settings.use_contact_point && result.model_data.delta_b_ph_contacted ? 
+              'Contact-point anchoring aligns the model to match the measured curve at the first point with pH ≥ contact_ph_min.' :
+              'pH-aligned ΔB compares at the same pH rather than same base amount, reducing artifacts near vertical regions.')}
           </p>
           <Plot
             style={{ width: '100%', height: 400 }}
@@ -426,6 +592,127 @@ function App() {
             The derivative dΔB/dpH accentuates step transitions corresponding to equivalence
             points.
           </p>
+
+          {/* -------------------------------------------------------------- */}
+          {/* Detected Peaks and Metal Assignment                           */}
+          {/* -------------------------------------------------------------- */}
+          {result.peaks.length > 0 && (
+            <>
+              <h3>Detected Peaks</h3>
+              <p style={{ fontSize: 13, marginTop: 4, marginBottom: 8 }}>
+                Assign metals to detected peaks to calculate concentrations.
+              </p>
+              <table border={1} cellPadding={4} style={{ borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr>
+                    <th>Peak ID</th>
+                    <th>pH Range</th>
+                    <th>ΔB Step</th>
+                    <th>Metal</th>
+                    <th>Stoichiometry</th>
+                    <th>Concentration (mol/L)</th>
+                    <th>Concentration (mg/L)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.peaks.map((peak) => (
+                    <tr key={peak.peak_id}>
+                      <td>{peak.peak_id}</td>
+                      <td>{peak.ph_start.toFixed(2)} - {peak.ph_end.toFixed(2)}</td>
+                      <td>{peak.delta_b_step.toFixed(5)}</td>
+                      <td>
+                        <select
+                          value={peakAssignments[peak.peak_id] || peak.metal || ''}
+                          onChange={(e) => {
+                            const value = e.target.value as Metal | '';
+                            setPeakAssignments({
+                              ...peakAssignments,
+                              [peak.peak_id]: value
+                            });
+                          }}
+                        >
+                          <option value="">-- Select Metal --</option>
+                          <option value="Fe3+">Fe³⁺</option>
+                          <option value="Ni2+">Ni²⁺</option>
+                          <option value="Co2+">Co²⁺</option>
+                          <option value="Fe2+">Fe²⁺</option>
+                          <option value="Al3+">Al³⁺</option>
+                          <option value="Mn2+">Mn²⁺</option>
+                        </select>
+                      </td>
+                      <td>{peak.stoichiometry || '-'}</td>
+                      <td>{peak.c_metal ? peak.c_metal.toFixed(5) : '-'}</td>
+                      <td>{peak.mg_l ? peak.mg_l.toFixed(2) : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 12 }}>
+                <button
+                  disabled={assigningPeaks || Object.keys(peakAssignments).length === 0}
+                  onClick={async () => {
+                    // Filter out empty assignments
+                    const assignments: PeakAssignment[] = Object.entries(peakAssignments)
+                      .filter(([, metal]) => metal !== '')
+                      .map(([peakId, metal]) => ({
+                        peak_id: parseInt(peakId),
+                        metal: metal as Metal
+                      }));
+                    
+                    if (assignments.length === 0) return;
+                    
+                    setAssigningPeaks(true);
+                    try {
+                      const updatedPeaks = await assignPeaks(assignments);
+                      // Update result with new peaks
+                      setResult({
+                        ...result,
+                        peaks: updatedPeaks
+                      });
+                      // Clear assignments since they're now applied
+                      setPeakAssignments({});
+                    } catch (err) {
+                      alert(`Assignment failed: ${err}`);
+                    } finally {
+                      setAssigningPeaks(false);
+                    }
+                  }}
+                >
+                  {assigningPeaks ? 'Assigning...' : 'Assign & Quantify'}
+                </button>
+              </div>
+
+              {/* Totals summary for selected metals */}
+              {(() => {
+                const metalsToSum: Metal[] = ['Fe3+', 'Ni2+', 'Co2+']
+                const totals = metalsToSum.map((m) => {
+                  const rows = result.peaks.filter(
+                    (p) => p.metal === m && p.c_metal != null && p.mg_l != null,
+                  )
+                  return {
+                    metal: m,
+                    c: rows.reduce((acc, p) => acc + (p.c_metal || 0), 0),
+                    mg: rows.reduce((acc, p) => acc + (p.mg_l || 0), 0),
+                  }
+                })
+                const anyAssigned = totals.some((t) => t.c > 0)
+                if (!anyAssigned) return null
+                return (
+                  <div style={{ marginTop: 12, fontSize: 14 }}>
+                    <strong>Totals:</strong>
+                    <ul style={{ margin: '4px 0 0 16px' }}>
+                      {totals.map((t) => (
+                        <li key={t.metal}>
+                          {t.metal}: {t.c.toFixed(5)} mol/L &nbsp;|&nbsp;{' '}
+                          {t.mg.toFixed(2)} mg/L
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )
+              })()}
+            </>
+          )}
 
           <h3>Processed Table (first 100 rows)</h3>
           <div style={{ overflowX: 'auto' }}>

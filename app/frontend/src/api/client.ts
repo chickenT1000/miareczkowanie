@@ -29,6 +29,14 @@ export interface ComputeSettings {
   t: number;
   ph_cutoff: number;
   start_index: number;
+  /** If provided, use this fixed total sulfate concentration instead of estimating it */
+  c_a_known?: number | null;
+  /** Ignore rows with pH below this value when estimating C_A (only if c_a_known is null) */
+  ph_ignore_below?: number | null;
+  /** Use contact-point anchoring instead of baseline estimate (only if c_a_known is null) */
+  use_contact_point?: boolean;
+  /** pH threshold to pick the first measurement as the contact point anchor */
+  contact_ph_min?: number;
   column_mapping: ColumnMapping;
   rows: Record<string, number | string>[];
 }
@@ -52,6 +60,14 @@ export interface ModelData {
   ph_model?: number[];
   /** Corresponding base values for the standalone model curve */
   b_model_curve?: number[];
+  /** Model base values evaluated at the same pH as each measurement */
+  b_model_ph_aligned?: (number | null)[];
+  /** ΔB computed using pH-aligned model values */
+  delta_b_ph_aligned?: (number | null)[];
+  /** Model base values after horizontal shift at the contact point */
+  b_model_ph_contacted?: (number | null)[];
+  /** ΔB computed with contact-point–anchored model */
+  delta_b_ph_contacted?: (number | null)[];
 }
 
 export interface Peak {
@@ -60,7 +76,11 @@ export interface Peak {
   ph_apex: number;
   ph_end: number;
   delta_b_step: number;
-  // optional assignment fields omitted for brevity
+  /* ---------- optional assignment / quantification fields --------------- */
+  metal?: Metal | null;
+  stoichiometry?: number | null;
+  c_metal?: number | null;
+  mg_l?: number | null;
 }
 
 export interface ComputeResponse {
@@ -68,6 +88,17 @@ export interface ComputeResponse {
   model_data: ModelData;
   peaks: Peak[];
   c_a: number;
+}
+
+/* ---------------------------------------------------------------------------
+ *  Peak-assignment helpers
+ * ------------------------------------------------------------------------- */
+
+export type Metal = 'Fe3+' | 'Fe2+' | 'Al3+' | 'Ni2+' | 'Co2+' | 'Mn2+';
+
+export interface PeakAssignment {
+  peak_id: number;
+  metal: Metal;
 }
 
 /**
@@ -165,3 +196,28 @@ export async function exportData(
 
   return res.json() as Promise<ExportResponse>;
 }
+
+/**
+ * Assign detected peaks to metals and receive updated peak list.
+ *
+ * @param assignments Array of { peak_id, metal } objects
+ * @returns           Updated array of Peak objects with concentration fields
+ */
+export async function assignPeaks(
+  assignments: PeakAssignment[],
+): Promise<Peak[]> {
+  const res = await fetch('/api/assign_peaks', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ assignments }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Assign peaks failed: ${await res.text()}`);
+  }
+
+  return res.json() as Promise<Peak[]>;
+}
+

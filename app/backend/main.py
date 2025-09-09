@@ -22,11 +22,14 @@ from schemas import (
     ExportFormat,
     DataType,
     SessionData,
+    AssignPeaksRequest,
+    PeakAssignment,
     Metal,
 )
 from io_csv import parse_csv_file
 import chem
 import peaks
+from models import METALS_DATA
 
 # Environment configuration
 APP_ENV = os.getenv("APP_ENV", "dev")
@@ -144,6 +147,9 @@ async def compute_data(settings: ComputeSettings):
             v0=settings.v0,
             time_unit="s",  # Assuming time is in seconds from CSV parser
             start_index=settings.start_index,
+            # new overrides
+            c_a_override=settings.c_a_known,
+            ph_ignore_below=settings.ph_ignore_below,
         )
         
         # Convert processed rows to ProcessedRow model
@@ -199,12 +205,73 @@ async def compute_data(settings: ComputeSettings):
             # Fallback to empty curve if solver fails for exotic params
             ph_curve, b_curve = [], []
 
+        # ------------------------------------------------------------------
+        # pH-aligned model values for each measured point
+        # ------------------------------------------------------------------
+        import math
+
+        b_model_ph_aligned: List[Optional[float]] = []
+        delta_b_ph_aligned: List[Optional[float]] = []
+        for row in processed_rows:
+            try:
+                b_at_ph = chem.find_b_for_ph(
+                    c_a,
+                    settings.c_b,
+                    row["pH"],
+                    b_hint=row["b_meas"],
+                )
+            except Exception:
+                b_at_ph = float("nan")
+
+            if b_at_ph is None or math.isnan(b_at_ph):
+                b_model_ph_aligned.append(None)
+                delta_b_ph_aligned.append(None)
+            else:
+                b_model_ph_aligned.append(b_at_ph)
+                delta_b_ph_aligned.append(row["b_meas"] - b_at_ph)
+
         # Build model data (measured-aligned points + standalone curve)
+
+        # ------------------------------------------------------------------
+        # Contact-point anchoring (optional)
+        # ------------------------------------------------------------------
+        b_model_ph_contacted: Optional[List[Optional[float]]] = None
+        delta_b_ph_contacted: Optional[List[Optional[float]]] = None
+        if (
+            settings.c_a_known is None
+            and settings.use_contact_point
+            and b_model_ph_aligned
+        ):
+            # Find first index where pH ≥ contact_ph_min
+            i_contact = 0
+            for idx, row in enumerate(processed_rows):
+                if row["pH"] >= settings.contact_ph_min:
+                    i_contact = idx
+                    break
+
+            b_model_i = b_model_ph_aligned[i_contact]
+            if b_model_i is not None:
+                b_meas_i = processed_rows[i_contact]["b_meas"]
+                b_offset = b_meas_i - b_model_i
+
+                b_model_ph_contacted = [
+                    (x + b_offset) if x is not None else None
+                    for x in b_model_ph_aligned
+                ]
+                delta_b_ph_contacted = [
+                    (processed_rows[j]["b_meas"] - y) if y is not None else None
+                    for j, y in enumerate(b_model_ph_contacted)
+                ]
+
         model_data = ModelData(
             ph=[row["pH"] for row in processed_rows],
             b_model=[row["b_model"] for row in processed_rows],
             ph_model=ph_curve,
             b_model_curve=b_curve,
+            b_model_ph_aligned=b_model_ph_aligned,
+            delta_b_ph_aligned=delta_b_ph_aligned,
+            b_model_ph_contacted=b_model_ph_contacted,
+            delta_b_ph_contacted=delta_b_ph_contacted,
         )
         
         # Return compute response
@@ -313,6 +380,52 @@ async def export_data(request: ExportRequest):
         "content_type": content_type,
         "data": data_payload,
     }
+
+# --------------------------------------------------------------------------- #
+#  Peak → metal assignment endpoint                                          #
+# --------------------------------------------------------------------------- #
+
+
+@app.post("/api/assign_peaks", response_model=List[Peak])
+async def assign_peaks(request: AssignPeaksRequest):
+    """
+    Assign detected peaks to specific metals and quantify concentrations.
+
+    For each assignment:
+      c_metal = ΔB_step / stoichiometry
+      mg/L    = c_metal · molar_mass · 1000
+    """
+
+    # Ensure we have peaks from a previous compute
+    if app.state.last_peaks is None:
+        raise HTTPException(status_code=400, detail="No peaks available. Run /api/compute first.")
+
+    # Build quick lookup from peak_id to desired metal
+    assignment_map = {a.peak_id: a.metal for a in request.assignments}
+
+    # Update peaks in place
+    updated_peaks: List[Peak] = []
+    for peak in app.state.last_peaks:
+        if peak.peak_id in assignment_map:
+            metal_enum = assignment_map[peak.peak_id]
+            metal_data = METALS_DATA.get(metal_enum)
+            if metal_data is None:
+                raise HTTPException(status_code=400, detail=f"Unknown metal {metal_enum}")
+
+            stoich = metal_data.stoichiometry
+            c_metal = peak.delta_b_step / stoich if stoich else None
+            mg_l = c_metal * metal_data.molar_mass * 1000.0 if c_metal is not None else None
+
+            peak.metal = metal_enum
+            peak.stoichiometry = stoich
+            peak.c_metal = c_metal
+            peak.mg_l = mg_l
+        updated_peaks.append(peak)
+
+    # Persist
+    app.state.last_peaks = updated_peaks
+
+    return updated_peaks
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
