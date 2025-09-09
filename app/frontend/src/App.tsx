@@ -46,6 +46,8 @@ function App() {
   // Peak assignment state
   const [peakAssignments, setPeakAssignments] = useState<Record<number, Metal | ''>>({})
   const [assigningPeaks, setAssigningPeaks] = useState(false)
+  // Dark mode detection
+  const [prefersDark, setPrefersDark] = useState(false)
   
   // Preview arrays for pH-time plot
   const previewPh: number[] =
@@ -60,6 +62,21 @@ function App() {
           .map((r) => Number(r[mapping.time]))
           .filter((v) => !Number.isNaN(v)) as number[])
       : []
+
+  // Base plot layout for dark mode compatibility
+  const plotLayoutBase = {
+    paper_bgcolor: 'transparent',
+    plot_bgcolor: 'transparent',
+    font: {
+      color: prefersDark ? '#e5e7eb' : '#111827',
+    },
+    xaxis: {
+      gridcolor: prefersDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+    },
+    yaxis: {
+      gridcolor: prefersDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+    },
+  }
 
   /* ---------------------------------------------------------------------- */
   /* Helper: trigger client-side download                                   */
@@ -77,6 +94,30 @@ function App() {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* Helper: calculate finite difference derivative                         */
+  /* ---------------------------------------------------------------------- */
+  const calculateDerivative = (x: number[], y: number[]): number[] => {
+    if (x.length !== y.length || x.length < 2) {
+      return Array(y.length).fill(0);
+    }
+    
+    const derivative: number[] = [];
+    
+    // First point - forward difference
+    derivative.push((y[1] - y[0]) / (x[1] - x[0]));
+    
+    // Middle points - central difference
+    for (let i = 1; i < x.length - 1; i++) {
+      derivative.push((y[i + 1] - y[i - 1]) / (x[i + 1] - x[i - 1]));
+    }
+    
+    // Last point - backward difference
+    derivative.push((y[y.length - 1] - y[y.length - 2]) / (x[x.length - 1] - x[x.length - 2]));
+    
+    return derivative;
   }
 
   useEffect(() => {
@@ -98,6 +139,25 @@ function App() {
     }
   }, [])
 
+  // Detect dark mode preference
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleChange = (e: MediaQueryListEvent) => {
+      setPrefersDark(e.matches)
+    }
+    
+    // Set initial value
+    setPrefersDark(mediaQuery.matches)
+    
+    // Add listener for changes
+    mediaQuery.addEventListener('change', handleChange)
+    
+    // Cleanup
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange)
+    }
+  }, [])
+
   // Reset peak assignments when result changes
   useEffect(() => {
     if (result) {
@@ -106,11 +166,11 @@ function App() {
   }, [result])
 
   return (
-    <main className="container" style={{ textAlign: 'left', maxWidth: 960, margin: '0 auto' }}>
+    <main className="container">
       {/* ------------------------------------------------------------------ */}
       {/* Health Banner */}
       {/* ------------------------------------------------------------------ */}
-      <section style={{ background: '#f4f4f4', padding: '0.5rem 1rem', marginBottom: '1rem' }}>
+      <section className="cardish">
         {health.status === 'loading' && <span>Checking backend…</span>}
         {health.status === 'error' && <span style={{ color: 'red' }}>Backend error: {health.message}</span>}
         {health.status === 'ok' && <span style={{ color: 'green' }}>Backend OK</span>}
@@ -121,17 +181,17 @@ function App() {
       {/* ------------------------------------------------------------------ */}
       {/* Info / Method description */}
       {/* ------------------------------------------------------------------ */}
-      <section
-        style={{
-          background: '#eef7ff',
-          padding: '0.75rem 1rem',
-          border: '1px solid #c9e2ff',
-          marginBottom: '1rem',
-          fontSize: 14,
-        }}
-      >
+      <section className="cardish">
         <strong>What is calculated?</strong>
-        <ul style={{ marginTop: 4, marginBottom: 4 }}>
+        <p className="setting-description">
+          A flowing titration with NaOH is modelled assuming only&nbsp;H₂SO₄ in the sample.
+          Sodium added by the pump is corrected for dilution. Using electroneutrality,
+          Na<sub>model</sub> = C<sub>A</sub>·f(H) + OH⁻ − H⁺. This is converted back to the
+          normalised base axis B<sub>model</sub>. The difference ΔB highlights neutralisation
+          events; its derivative pinpoints step transitions whose heights correspond to
+          sulfate fractions. A robust median of baseline points estimates C<sub>A</sub>.
+        </p>
+        <ul style={{ marginTop: 4, marginBottom: 4, fontSize: 16 }}>
           <li>H⁺ from pH, then OH⁻ via K<sub>w</sub></li>
           <li>Sulfate charge fraction&nbsp;f(H) = (H + 2·K<sub>a2</sub>)/(H + K<sub>a2</sub>)</li>
           <li>Delivered base → Na⁺ with dilution → B<sub>meas</sub></li>
@@ -139,17 +199,6 @@ function App() {
           <li>Cumulative derivative dΔB/dpH shows equivalence-point steps</li>
           <li>C<sub>A</sub> (total sulfate) is estimated from the initial baseline window</li>
         </ul>
-        <details>
-          <summary style={{ cursor: 'pointer' }}>Full description&nbsp;(click to expand)</summary>
-          <p style={{ marginTop: 6 }}>
-            A flowing titration with NaOH is modelled assuming only&nbsp;H₂SO₄ in the sample.
-            Sodium added by the pump is corrected for dilution. Using electroneutrality,
-            Na<sub>model</sub> = C<sub>A</sub>·f(H) + OH⁻ − H⁺. This is converted back to the
-            normalised base axis B<sub>model</sub>. The difference ΔB highlights neutralisation
-            events; its derivative pinpoints step transitions whose heights correspond to
-            sulfate fractions. A robust median of baseline points estimates C<sub>A</sub>.
-          </p>
-        </details>
       </section>
 
       {/* ------------------------------------------------------------------ */}
@@ -157,7 +206,7 @@ function App() {
       {/* ------------------------------------------------------------------ */}
       <section>
         <h2>1. Upload CSV</h2>
-        <p style={{ fontSize: 14 }}>
+        <p className="setting-description">
           Supported: instrument export or any CSV with pH and time columns. Decimal&nbsp;comma and
           semicolon separators are detected automatically.
         </p>
@@ -198,42 +247,6 @@ function App() {
       </section>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Mapping */}
-      {/* ------------------------------------------------------------------ */}
-      {importData && mapping && (
-        <section>
-          <h2>2. Map Columns</h2>
-          <p style={{ fontSize: 14, marginTop: 0 }}>
-            Choose numeric pH and time columns (prefer &ldquo;time&rdquo; over
-            &ldquo;time_label&rdquo;).
-          </p>
-          <label>
-            pH column:&nbsp;
-            <select
-              value={mapping.ph}
-              onChange={(e) => setMapping({ ...mapping, ph: e.target.value })}
-            >
-              {importData.columns.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </label>
-          &nbsp;&nbsp;
-          <label>
-            Time column:&nbsp;
-            <select
-              value={mapping.time}
-              onChange={(e) => setMapping({ ...mapping, time: e.target.value })}
-            >
-              {importData.columns.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </label>
-        </section>
-      )}
-
-      {/* ------------------------------------------------------------------ */}
       {/* Preview plot pH vs time                                            */}
       {/* ------------------------------------------------------------------ */}
       {previewPh.length > 2 && (
@@ -251,9 +264,16 @@ function App() {
               },
             ]}
             layout={{
+              ...plotLayoutBase,
               title: 'pH vs time',
-              xaxis: { title: `time (${importData?.time_unit})` },
-              yaxis: { title: 'pH' },
+              xaxis: { 
+                ...plotLayoutBase.xaxis,
+                title: `time (${importData?.time_unit})` 
+              },
+              yaxis: { 
+                ...plotLayoutBase.yaxis,
+                title: 'pH' 
+              },
             }}
             useResizeHandler
           />
@@ -266,122 +286,141 @@ function App() {
       {importData && mapping && (
         <section>
           <h2>3. Settings</h2>
-          <p style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>
+          <p className="setting-description">
             Configure pump / solution parameters (used in model calculations).
           </p>
-          <label style={{ marginRight: 12 }}>
-            C<sub>b</sub> (NaOH conc., mol/L):{' '}
+          
+          <div className="setting-row">
+            <label title="Concentration of NaOH solution used by the pump">
+              C<sub>b</sub> (NaOH concentration, mol/L):
+            </label>
             <input
               type="number"
               step="any"
               value={settings.c_b}
               onChange={(e) => setSettings({ ...settings, c_b: parseFloat(e.target.value) })}
-              style={{ width: 80 }}
+              style={{ width: 120 }}
             />
-          </label>
-          <label style={{ marginRight: 12 }}>
-            q (pump flow, mL/min):{' '}
+          </div>
+          
+          <div className="setting-row">
+            <label title="Flow rate of the pump in milliliters per minute">
+              q (pump flow, mL/min):
+            </label>
             <input
               type="number"
               step="any"
               value={settings.q}
               onChange={(e) => setSettings({ ...settings, q: parseFloat(e.target.value) })}
-              style={{ width: 80 }}
+              style={{ width: 120 }}
             />
-          </label>
-          <label style={{ marginRight: 12 }}>
-            V<sub>0</sub> (initial volume, mL):{' '}
+          </div>
+          
+          <div className="setting-row">
+            <label title="Initial volume of the sample before titration begins">
+              V<sub>0</sub> (initial volume, mL):
+            </label>
             <input
               type="number"
               step="any"
               value={settings.v0}
               onChange={(e) => setSettings({ ...settings, v0: parseFloat(e.target.value) })}
-              style={{ width: 80 }}
+              style={{ width: 120 }}
             />
-          </label>
-          <label style={{ marginRight: 12 }}>
-            pH cutoff (peak detection):{' '}
+          </div>
+          
+          <div className="setting-row">
+            <label title="pH threshold for peak detection, peaks above this value are detected">
+              pH cutoff (peak detection):
+            </label>
             <input
               type="number"
               step="any"
               value={settings.ph_cutoff}
               onChange={(e) => setSettings({ ...settings, ph_cutoff: parseFloat(e.target.value) })}
-              style={{ width: 80 }}
+              style={{ width: 120 }}
             />
-          </label>
+          </div>
           
-          <div style={{ marginTop: 12 }}>
-            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+          <div className="setting-row">
+            <label style={{ display: 'flex', alignItems: 'center' }} title="Use a known acid concentration instead of estimating from baseline">
               <input
                 type="checkbox"
                 checked={settings.use_c_a_known}
                 onChange={(e) => setSettings({ ...settings, use_c_a_known: e.target.checked })}
-                style={{ marginRight: 4 }}
+                style={{ marginRight: 8 }}
               />
-              Use known C<sub>A</sub> (mol/L):{' '}
+              Use known C<sub>A</sub> (mol/L):
             </label>
             <input
               type="number"
               step="any"
               value={settings.c_a_known}
               onChange={(e) => setSettings({ ...settings, c_a_known: parseFloat(e.target.value) })}
-              style={{ width: 80, marginRight: 12 }}
+              style={{ width: 120 }}
               disabled={!settings.use_c_a_known}
+              title="Known acid concentration value in mol/L"
             />
-            
-            <label style={{ marginRight: 12 }}>
-              Ignore pH below (for baseline C<sub>A</sub> estimation):{' '}
-              <input
-                type="number"
-                step="any"
-                value={settings.ph_ignore_below}
-                onChange={(e) => {
-                  const val = e.target.value === '' ? '' : parseFloat(e.target.value);
-                  setSettings({ ...settings, ph_ignore_below: val as any });
-                }}
-                style={{ width: 80 }}
-                placeholder="Optional"
-              />
-            </label>
           </div>
           
-          <div style={{ marginTop: 12 }}>
-            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+          <div className="setting-row">
+            <label title="Ignore pH values below this threshold when estimating acid concentration from baseline">
+              Ignore pH below (for baseline C<sub>A</sub> estimation):
+            </label>
+            <input
+              type="number"
+              step="any"
+              value={settings.ph_ignore_below}
+              onChange={(e) => {
+                const val = e.target.value === '' ? '' : parseFloat(e.target.value);
+                setSettings({ ...settings, ph_ignore_below: val as any });
+              }}
+              style={{ width: 120 }}
+              placeholder="Optional"
+              title="Only applies when C_A is not provided"
+            />
+          </div>
+          
+          <div className="setting-row">
+            <label style={{ display: 'flex', alignItems: 'center' }} title="Align model to match measured curve at first point with pH ≥ contact_ph_min">
               <input
                 type="checkbox"
                 checked={settings.use_contact_point}
                 onChange={(e) => setSettings({ ...settings, use_contact_point: e.target.checked })}
-                style={{ marginRight: 4 }}
+                style={{ marginRight: 8 }}
                 disabled={settings.use_c_a_known}
               />
               Use contact point (when C<sub>A</sub> unknown)
             </label>
-            <label style={{ marginRight: 12 }}>
-              Contact pH min:{' '}
-              <input
-                type="number"
-                step="any"
-                value={settings.contact_ph_min}
-                onChange={(e) => setSettings({ ...settings, contact_ph_min: parseFloat(e.target.value) })}
-                style={{ width: 80 }}
-                disabled={settings.use_c_a_known || !settings.use_contact_point}
-              />
-            </label>
           </div>
           
-          <div style={{ marginTop: 12 }}>
-            <label style={{ marginRight: 12, display: 'inline-flex', alignItems: 'center' }}>
+          <div className="setting-row">
+            <label title="Minimum pH threshold for selecting contact point">
+              Contact pH min:
+            </label>
+            <input
+              type="number"
+              step="any"
+              value={settings.contact_ph_min}
+              onChange={(e) => setSettings({ ...settings, contact_ph_min: parseFloat(e.target.value) })}
+              style={{ width: 120 }}
+              disabled={settings.use_c_a_known || !settings.use_contact_point}
+            />
+          </div>
+          
+          <div className="setting-row">
+            <label style={{ display: 'flex', alignItems: 'center' }} title="Show pH-aligned model overlay in titration curve">
               <input
                 type="checkbox"
                 checked={settings.show_ph_aligned}
                 onChange={(e) => setSettings({ ...settings, show_ph_aligned: e.target.checked })}
-                style={{ marginRight: 4 }}
+                style={{ marginRight: 8 }}
               />
               Show pH-aligned model overlay
             </label>
           </div>
           
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 20 }}>
             <button
               disabled={computing}
               onClick={async () => {
@@ -492,13 +531,20 @@ function App() {
               ] : []),
             ]}
             layout={{
+              ...plotLayoutBase,
               title: 'Titration Curve: pH vs Base Amount',
-              xaxis: { title: 'Base amount (mol/L)' },
-              yaxis: { title: 'pH' },
+              xaxis: { 
+                ...plotLayoutBase.xaxis,
+                title: 'Base amount (mol/L)' 
+              },
+              yaxis: { 
+                ...plotLayoutBase.yaxis,
+                title: 'pH' 
+              },
             }}
             useResizeHandler
           />
-          <p style={{ fontSize: 13, marginTop: 4 }}>
+          <p className="setting-description">
             Titration curve showing pH vs normalized base amount. The measured data (solid line) is compared with 
             the theoretical H₂SO₄-only model (dashed line). Extreme model values are masked for better visualization.
           </p>
@@ -509,88 +555,183 @@ function App() {
               <label style={{ fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>
                 <input
                   type="checkbox"
-                  checked={showPhAlignedDeltaB && settings.show_ph_aligned}
+                  checked={showPhAlignedDeltaB}
                   onChange={(e) => setShowPhAlignedDeltaB(e.target.checked)}
-                  disabled={!settings.show_ph_aligned}
                   style={{ marginRight: 4 }}
                 />
                 Use pH-aligned ΔB
               </label>
             )}
           </div>
-          <Plot
-            style={{ width: '100%', height: 400 }}
-            data={[
-              {
-                x: result.processed_table.map((r) => r.ph),
-                y: (() => {
-                  if (showPhAlignedDeltaB && settings.show_ph_aligned) {
-                    if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
-                      return result.model_data.delta_b_ph_contacted.filter((v): v is number => v !== null);
-                    } else if (result.model_data.delta_b_ph_aligned) {
-                      return result.model_data.delta_b_ph_aligned.filter((v): v is number => v !== null);
-                    }
+          
+          {/* Prepare data for ΔB vs pH plot */}
+          {(() => {
+            // Get the appropriate delta_b array based on settings
+            let deltaB = result.processed_table.map(r => r.delta_b);
+            let phValues = result.processed_table.map(r => r.ph);
+            let plotTitle = 'ΔB vs pH';
+            
+            if (showPhAlignedDeltaB) {
+              if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                // Filter out nulls and get corresponding pH values
+                const validIndices: number[] = [];
+                const filteredDeltaB: number[] = [];
+                const filteredPh: number[] = [];
+                
+                result.model_data.delta_b_ph_contacted.forEach((val, idx) => {
+                  if (val !== null) {
+                    validIndices.push(idx);
+                    filteredDeltaB.push(val);
+                    filteredPh.push(result.model_data.ph[idx]);
                   }
-                  return result.processed_table.map((r) => r.delta_b);
-                })(),
-                type: 'scatter',
-                mode: 'lines',
-                name: (() => {
-                  if (showPhAlignedDeltaB && settings.show_ph_aligned) {
-                    if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
-                      return 'ΔB (contacted)';
-                    } else {
-                      return 'ΔB (pH-aligned)';
-                    }
+                });
+                
+                deltaB = filteredDeltaB;
+                phValues = filteredPh;
+                plotTitle = 'ΔB (contacted) vs pH';
+              } 
+              else if (result.model_data.delta_b_ph_aligned) {
+                // Filter out nulls and get corresponding pH values
+                const validIndices: number[] = [];
+                const filteredDeltaB: number[] = [];
+                const filteredPh: number[] = [];
+                
+                result.model_data.delta_b_ph_aligned.forEach((val, idx) => {
+                  if (val !== null) {
+                    validIndices.push(idx);
+                    filteredDeltaB.push(val);
+                    filteredPh.push(result.model_data.ph[idx]);
                   }
-                  return 'ΔB';
-                })(),
-              },
-            ]}
-            layout={{ 
-              title: (() => {
-                if (showPhAlignedDeltaB && settings.show_ph_aligned) {
-                  if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
-                    return 'ΔB (contacted) vs pH';
-                  } else {
-                    return 'ΔB (pH-aligned) vs pH';
-                  }
-                }
-                return 'ΔB vs pH';
-              })(),
-              xaxis: { title: 'pH' }, 
-              yaxis: { title: 'ΔB (mol/L)' } 
-            }}
-            useResizeHandler
-          />
-          <p style={{ fontSize: 13, marginTop: 4 }}>
+                });
+                
+                deltaB = filteredDeltaB;
+                phValues = filteredPh;
+                plotTitle = 'ΔB (pH-aligned) vs pH';
+              }
+            }
+            
+            return (
+              <Plot
+                style={{ width: '100%', height: 400 }}
+                data={[
+                  {
+                    x: phValues,
+                    y: deltaB,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: showPhAlignedDeltaB ? 
+                      (settings.use_contact_point && result.model_data.delta_b_ph_contacted ? 'ΔB (contacted)' : 'ΔB (pH-aligned)') : 
+                      'ΔB',
+                  },
+                ]}
+                layout={{ 
+                  ...plotLayoutBase,
+                  title: plotTitle,
+                  xaxis: { 
+                    ...plotLayoutBase.xaxis,
+                    title: 'pH' 
+                  }, 
+                  yaxis: { 
+                    ...plotLayoutBase.yaxis,
+                    title: 'ΔB (mol/L)' 
+                  } 
+                }}
+                useResizeHandler
+              />
+            );
+          })()}
+          
+          <p className="setting-description">
             ΔB is the difference between measured and modelled base dosage – it highlights
-            deviations due to neutralisation. {showPhAlignedDeltaB && settings.show_ph_aligned && 
+            deviations due to neutralisation. {showPhAlignedDeltaB && 
             (settings.use_contact_point && result.model_data.delta_b_ph_contacted ? 
               'Contact-point anchoring aligns the model to match the measured curve at the first point with pH ≥ contact_ph_min.' :
               'pH-aligned ΔB compares at the same pH rather than same base amount, reducing artifacts near vertical regions.')}
           </p>
-          <Plot
-            style={{ width: '100%', height: 400 }}
-            data={[
-              {
-                x: result.processed_table.map((r) => r.ph),
-                y: result.processed_table.map((r) => r.d_delta_b_d_ph),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'dΔB/dpH',
-              },
-            ]}
-            layout={{
-              title: 'dΔB/dpH vs pH',
-              xaxis: { title: 'pH' },
-              yaxis: { title: 'dΔB/dpH' },
-            }}
-            useResizeHandler
-          />
-          <p style={{ fontSize: 13, marginTop: 4 }}>
+          
+          {/* Derivative plot with on-the-fly calculation */}
+          {(() => {
+            // Get the appropriate delta_b array based on settings - same logic as above
+            let deltaB = result.processed_table.map(r => r.delta_b);
+            let phValues = result.processed_table.map(r => r.ph);
+            let plotTitle = 'dΔB/dpH vs pH';
+            
+            if (showPhAlignedDeltaB) {
+              if (settings.use_contact_point && result.model_data.delta_b_ph_contacted) {
+                // Filter out nulls and get corresponding pH values
+                const validIndices: number[] = [];
+                const filteredDeltaB: number[] = [];
+                const filteredPh: number[] = [];
+                
+                result.model_data.delta_b_ph_contacted.forEach((val, idx) => {
+                  if (val !== null) {
+                    validIndices.push(idx);
+                    filteredDeltaB.push(val);
+                    filteredPh.push(result.model_data.ph[idx]);
+                  }
+                });
+                
+                deltaB = filteredDeltaB;
+                phValues = filteredPh;
+                plotTitle = 'dΔB/dpH (contacted) vs pH';
+              } 
+              else if (result.model_data.delta_b_ph_aligned) {
+                // Filter out nulls and get corresponding pH values
+                const validIndices: number[] = [];
+                const filteredDeltaB: number[] = [];
+                const filteredPh: number[] = [];
+                
+                result.model_data.delta_b_ph_aligned.forEach((val, idx) => {
+                  if (val !== null) {
+                    validIndices.push(idx);
+                    filteredDeltaB.push(val);
+                    filteredPh.push(result.model_data.ph[idx]);
+                  }
+                });
+                
+                deltaB = filteredDeltaB;
+                phValues = filteredPh;
+                plotTitle = 'dΔB/dpH (pH-aligned) vs pH';
+              }
+            }
+            
+            // Calculate derivative on the fly
+            const dDeltaBdPh = calculateDerivative(phValues, deltaB);
+            
+            return (
+              <Plot
+                style={{ width: '100%', height: 400 }}
+                data={[
+                  {
+                    x: phValues,
+                    y: dDeltaBdPh,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: showPhAlignedDeltaB ? 
+                      (settings.use_contact_point && result.model_data.delta_b_ph_contacted ? 'dΔB/dpH (contacted)' : 'dΔB/dpH (pH-aligned)') : 
+                      'dΔB/dpH',
+                  },
+                ]}
+                layout={{ 
+                  ...plotLayoutBase,
+                  title: plotTitle,
+                  xaxis: { 
+                    ...plotLayoutBase.xaxis,
+                    title: 'pH' 
+                  }, 
+                  yaxis: { 
+                    ...plotLayoutBase.yaxis,
+                    title: 'dΔB/dpH' 
+                  } 
+                }}
+                useResizeHandler
+              />
+            );
+          })()}
+          
+          <p className="setting-description">
             The derivative dΔB/dpH accentuates step transitions corresponding to equivalence
-            points.
+            points. {showPhAlignedDeltaB && 'The derivative is calculated from the selected ΔB data.'}
           </p>
 
           {/* -------------------------------------------------------------- */}
@@ -599,7 +740,7 @@ function App() {
           {result.peaks.length > 0 && (
             <>
               <h3>Detected Peaks</h3>
-              <p style={{ fontSize: 13, marginTop: 4, marginBottom: 8 }}>
+              <p className="setting-description">
                 Assign metals to detected peaks to calculate concentrations.
               </p>
               <table border={1} cellPadding={4} style={{ borderCollapse: 'collapse', fontSize: 14 }}>
@@ -714,64 +855,18 @@ function App() {
             </>
           )}
 
-          <h3>Processed Table (first 100 rows)</h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table border={1} cellPadding={4} style={{ borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr>
-                  {Object.keys(result.processed_table[0]).map((col) => (
-                    <th key={col}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.processed_table.slice(0, 100).map((row, idx) => (
-                  <tr key={idx}>
-                    {Object.values(row).map((v, i) => (
-                      <td key={i}>{typeof v === 'number' ? v.toFixed(4) : v}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
           {/* -------------------------------------------------------------- */}
-          {/* Export buttons                                                */}
+          {/* Single JSON export                                            */}
           {/* -------------------------------------------------------------- */}
           <h3>Export</h3>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button
-              onClick={async () => {
-                const res = await exportData('csv', 'processed')
-                downloadFile(res.filename, res.content_type, res.data)
-              }}
-            >
-              Processed CSV
-            </button>
-            <button
-              onClick={async () => {
-                const res = await exportData('json', 'processed')
-                downloadFile(res.filename, res.content_type, res.data)
-              }}
-            >
-              Processed JSON
-            </button>
-            <button
-              onClick={async () => {
-                const res = await exportData('json', 'peaks')
-                downloadFile(res.filename, res.content_type, res.data)
-              }}
-            >
-              Peaks JSON
-            </button>
             <button
               onClick={async () => {
                 const res = await exportData('json', 'session')
                 downloadFile(res.filename, res.content_type, res.data)
               }}
             >
-              Session JSON
+              Export all (JSON)
             </button>
           </div>
         </section>
