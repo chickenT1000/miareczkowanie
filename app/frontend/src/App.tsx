@@ -10,6 +10,9 @@ import type {
   PeakAssignment,
 } from './api/client'
 
+// Sankey view --------------------------------------------------------------
+import SankeyView from './sankey/SankeyView'
+
 // Plotly --------------------------------------------------------------------
 import createPlotlyComponent from 'react-plotly.js/factory'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -27,6 +30,8 @@ function App() {
   const [uploading, setUploading] = useState(false)
   const [importData, setImportData] = useState<ImportResponse | null>(null)
   const [mapping, setMapping] = useState<ColumnMapping | null>(null)
+  // App mode: 'titration' (default) or 'sankey'
+  const [mode, setMode] = useState<'titration' | 'sankey'>('titration')
   const [settings, setSettings] = useState({
     c_b: 0.1,
     q: 1.0,
@@ -105,6 +110,13 @@ function App() {
     }
   }, [result])
 
+  /* ---------------------------------------------------------------------- */
+  /* Mode switch: if Sankey, short-circuit render                           */
+  /* ---------------------------------------------------------------------- */
+  if (mode === 'sankey') {
+    return <SankeyView onBack={() => setMode('titration')} />
+  }
+
   return (
     <main className="container" style={{ textAlign: 'left', maxWidth: 960, margin: '0 auto' }}>
       {/* ------------------------------------------------------------------ */}
@@ -115,6 +127,13 @@ function App() {
         {health.status === 'error' && <span style={{ color: 'red' }}>Backend error: {health.message}</span>}
         {health.status === 'ok' && <span style={{ color: 'green' }}>Backend OK</span>}
       </section>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Mode switch button                                                */}
+      {/* ------------------------------------------------------------------ */}
+      <div style={{ textAlign: 'right', marginBottom: '0.5rem' }}>
+        <button onClick={() => setMode('sankey')}>Switch to Sankey view</button>
+      </div>
 
       <h1>Miareczkowanie</h1>
 
