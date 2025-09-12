@@ -31,6 +31,10 @@ import chem
 import peaks
 from models import METALS_DATA
 
+# Sankey router ----------------------------------------------------------- #
+# (added for optional Sankey-diagram functionality)
+from sankey_api import router as sankey_router
+
 # Environment configuration
 APP_ENV = os.getenv("APP_ENV", "dev")
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
@@ -51,6 +55,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register additional routers (kept separate for clarity)
+app.include_router(sankey_router, prefix="/api/sankey")
 
 # --------------------------------------------------------------------------- #
 # Initialise shared state to keep the most recent compute result
