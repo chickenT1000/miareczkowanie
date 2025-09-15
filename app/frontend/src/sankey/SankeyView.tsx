@@ -1,5 +1,7 @@
-import { useEffect, useState, useRef, ChangeEvent } from 'react'
-import { Graph, getGraph, scaleGraph, importData, downloadGraph } from '../api/sankey'
+import { useEffect, useState, useRef } from 'react'
+import type { ChangeEvent } from 'react'
+import type { Graph } from '../api/sankey'
+import { getGraph, scaleGraph, importData, downloadGraph } from '../api/sankey'
 
 // Plotly --------------------------------------------------------------------
 import createPlotlyComponent from 'react-plotly.js/factory'
